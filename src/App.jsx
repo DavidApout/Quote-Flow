@@ -1,15 +1,17 @@
 import { use, useState } from 'react'
 import './App.css'
+import QuoteCard from './components/QuoteCard'
 
 function App() {
 const [request,setRequest] =  useState("")
+const [quote,setQuote] = useState("")
 function handleGenerateQuote () {
   const cleanRequest = request.trim()
-  if (request.trim() === ""){
+  if (cleanRequest === ""){
     alert("Please enter a request")
     return
   }
-  alert(request.trim())
+  setQuote(cleanRequest)
 }
  return (
     <>
@@ -22,7 +24,7 @@ function handleGenerateQuote () {
        />
        <button 
        onClick={handleGenerateQuote}>Generate Quote</button>
-      <p>{request}</p>
+      {quote !== "" && <QuoteCard quote={quote}/>}
     </>
   )
 }
