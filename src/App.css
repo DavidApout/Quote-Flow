@@ -1,7 +1,7 @@
 main { max-width: 1120px; margin: auto; padding: 48px 24px; }
 header { margin-bottom: 32px; }
 .eyebrow { color: #167363; font-size: .75rem; font-weight: 750; letter-spacing: .12em; }
-.layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.layout { display: grid; grid-template-columns: 1fr ; gap: 24px; align-items: start; }
 .panel { padding: 28px; background: white; border: 1px solid #d9e5e1; border-radius: 16px; }
 .muted, footer { color: #5d716d; font-size: .875rem; }
 .panel > .muted { margin-top: 8px; }
@@ -28,3 +28,35 @@ dd { margin: 0; font-weight: 650; }
 .total { border-top: 1px solid #c6dfd0; margin-top: 12px; padding-top: 16px; font-size: 1.15rem; font-weight: 700; }
 footer { margin-top: 24px; }
 @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } main { padding: 28px 16px; } .panel { padding: 20px; } }
+.view-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.view-nav button {
+  flex: 1;
+  padding: 14px;
+}
+.view-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.view-nav button {
+  flex: 1;
+  padding: 14px;
+}
+
+.view-nav button {
+  background: #f0f5f3;
+  color: #28574c;
+  border: 1px solid #d9e5e1;
+}
+
+.view-nav button.active {
+  background: #126c5a;
+  color: white;
+  border-color: #126c5a;
+}
