@@ -1,192 +1,139 @@
-import { useState, useEffect } from "react";
-import "./App.css";
-import QuoteCard from "./components/QuoteCard";
-import QuoteForm from "./components/QuoteForm";
-import ServiceEditor from "./components/ServiceEditor";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import './App.css';
+import { readSaved } from './lib/storage';
+import { api } from './lib/api';
+import AccountForm, { RecoveryCode } from './components/AccountForm';
+import QuoteCard from './components/QuoteCard';
+import QuoteForm from './components/QuoteForm';
+import ServiceEditor from './components/ServiceEditor';
 
-const sampleServices = [
-  { id: "custom-t-shirt", name: "Custom T-shirt", price: 25 },
-  { id: "custom-hoodie", name: "Custom Hoodie", price: 50 },
-];
-function clearQuote() {
-  setQuote(null);
-  setError("");
+function Review({ quote, onUpdate, busy }) {
+  const [price, setPrice] = useState(String(quote.price ?? ''));
+  return <form onSubmit={event => { event.preventDefault(); const amount = Number(price); if (price.trim() && Number.isFinite(amount) && amount >= 0 && amount <= 1000000) onUpdate({ price: amount, status: 'approved' }); }}><fieldset disabled={busy}><label htmlFor={`price-${quote.id}`}>Final unit price (USD)</label><input id={`price-${quote.id}`} type="number" min="0" max="1000000" step="0.01" required value={price} onChange={event => setPrice(event.target.value)} /><div className="actions"><button>Approve quote</button><button type="button" className="secondary" onClick={() => onUpdate({ status: 'rejected' })}>Reject</button></div></fieldset></form>;
 }
-function App() {
-  const [services, setServices] = useState(() => {
-    const savedServices = localStorage.getItem("quoteflow-services");
-    return savedServices ? JSON.parse(savedServices) : sampleServices;
-  });
-  useEffect(() => {
-    localStorage.setItem("quoteflow-services", JSON.stringify(services));
-  }, [services]);
-  const [selectedServiceId, setSelectedServiceId] = useState(() => {
-    const selctedService = localStorage.getItem(
-      "quoteflow-selected-service-id",
-    );
-    return selctedService ? JSON.parse(selctedService) : selctedService;
-  });
-  useEffect(() => {
-    localStorage.setItem(
-      "quoteflow-selected-service-id",
-      JSON.stringify(selectedServiceId),
-    );
-  }, [selectedServiceId]);
-  const [request, setRequest] = useState(() => {
-    const request = localStorage.getItem("quoteflow-request");
-    return request ? JSON.parse(request) : request;
-  });
-  useEffect(() => {
-    localStorage.setItem("quoteflow-request", JSON.stringify(request));
-  }, [request]);
-  const [quote, setQuote] = useState(() => {
-    const quote = localStorage.getItem("quoteflow-quote");
-    return quote ? JSON.parse(quote) : quote;
-  });
-  useEffect(() => {
-    localStorage.setItem("quoteflow-quote", JSON.stringify(quote));
-  }, [quote]);
-  const [error, setError] = useState(() => {
-    const error = localStorage.getItem("quoteflow-error");
-    return error ? JSON.parse(error) : error;
-  });
-  useEffect(() => {
-    localStorage.setItem("quoteflow-error", JSON.stringify(error));
-  }, [error]);
-  const [quantity, setQuantity] = useState(() => {
-    const quantity = localStorage.getItem("quoteflow-selected-service");
-    return quantity ? JSON.parse(quantity) : quantity;
-  });
-  useEffect(() => {
-    localStorage.setItem("quoteflow-services", JSON.stringify(services));
-  }, [services]);
-  const [activeView, setActiveView] = useState(() => {
-    const activeView = localStorage.getItem("quoteflow-selected-service");
-    return activeView ? JSON.parse(activeView) : activeView;
-  });
-  useEffect(() => {
-    localStorage.setItem("quoteflow-services", JSON.stringify(services));
-  }, [services]);
-  const [quoteRequests, setQuoteRquests] = useState([]);
-  function clearQuote() {
-    setQuote(null);
-    setError("");
-  }
-  function handleServicesChange(nextServices) {
-    setServices(nextServices);
-    if (!nextServices.some((service) => service.id === selectedServiceId)) {
-      setSelectedServiceId("");
-    }
-    clearQuote();
-  }
 
-  function handleGenerateQuote(event) {
+function Workspace({ user, onSessionExpired }) {
+  const [data, setData] = useState(null);
+  const [businessId, setBusinessId] = useState('');
+  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [request, setRequest] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [quote, setQuote] = useState(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const sequence = useRef(0);
+  const pending = useRef(false);
+  const business = user.role === 'business';
+  const [legacyServices, setLegacyServices] = useState(() => {
+    try { return readSaved(localStorage, 'quoteflow-services', []).slice(0, 100); } catch { return []; }
+  });
+  const handleError = useCallback(error => { if (error.status === 401) onSessionExpired(); else setError(error.message); }, [onSessionExpired]);
+  const refresh = useCallback(async () => {
+    const current = ++sequence.current;
+    const result = await api(`/workspace?businessId=${encodeURIComponent(businessId)}`, { accountId: user.id });
+    if (current === sequence.current) setData(result);
+  }, [businessId, user.id]);
+  useEffect(() => {
+    let alive = true;
+    const counter = sequence;
+    const update = () => { if (!pending.current) refresh().catch(error => { if (alive) handleError(error); }); };
+    update();
+    const timer = setInterval(update, 15000);
+    window.addEventListener('focus', update);
+    return () => { alive = false; counter.current++; clearInterval(timer); window.removeEventListener('focus', update); };
+  }, [refresh, handleError]);
+  async function mutate(path, method, body, message) {
+    if (pending.current) return false;
+    pending.current = true; setBusy(true); setError(''); setNotice('');
+    try {
+      await api(path, { method, body, accountId: user.id });
+      setNotice(message);
+      // A refresh failure must not make a successful write look like a failed submission.
+      try { await refresh(); } catch { setError('Saved successfully, but the list could not refresh. Use Refresh to try again.'); }
+      return true;
+    } catch (error) { handleError(error); return false; }
+    finally { pending.current = false; setBusy(false); }
+  }
+  async function generateAI() {
+    if (pending.current) return;
+    if (!request.trim()) { setError('Describe your request first, including the quantity.'); return; }
+    pending.current = true; setBusy(true); setQuote(null); setError(''); setNotice('');
+    try {
+      const result = await api('/quotes/draft', { method: 'POST', accountId: user.id, body: { businessId: data.businessId, request } });
+      if (result.clarifyingQuestion) { setNotice(result.clarifyingQuestion); return; }
+      setSelectedServiceId(result.quote.serviceId);
+      setQuantity(result.quote.quantity);
+      setQuote(result.quote);
+      setNotice(`AI draft: ${result.quote.summary} Review the service and quantity before submitting.`);
+    } catch (error) { handleError(error); }
+    finally { pending.current = false; setBusy(false); }
+  }
+  function clearQuote() { setQuote(null); setError(''); setNotice(''); }
+  function generate(event) {
     event.preventDefault();
-    const service = services.find(
-      (service) => service.id === selectedServiceId,
-    );
+    const service = data.services.find(item => item.id === selectedServiceId);
+    const custom = selectedServiceId === 'custom';
     const count = Number(quantity);
-
-    if (!service) {
-      setError("Please select a service.");
-      setQuote(null);
-      return;
-    }
-    if (!Number.isSafeInteger(count) || count < 1 || count > 10000) {
-      setError("Enter a whole-number quantity from 1 to 10,000.");
-      setQuote(null);
-      return;
-    }
-    function handleSubmitRequest() {
-      if (!quote) return;
-      const newRequest = {
-        id: crypto.randomUUID(),
-        ...quote,
-        status: "pending",
-      };
-      setQuoteRquests((previousRequests) => [...previousRequests, newRequest]);
-    }
-
-    // Calculate in cents before converting the total back to dollars.
-    const totalCents = Math.round(service.price * 100) * count;
-    setQuote({
-      name: service.name,
-      request: request.trim(),
-      quantity: count,
-      price: service.price,
-      total: totalCents / 100,
-    });
-    setError("");
+    if (!Number.isSafeInteger(count) || count < 1 || count > 10000) { setError('Enter a whole-number quantity from 1 to 10,000.'); return; }
+    if ((!custom && !service) || (custom && !request.trim())) { setError('Choose a service or describe your custom request.'); return; }
+    setQuote({ name: custom ? 'Custom request' : service.name, request: request.trim(), quantity: count, price: custom ? null : service.price, total: custom ? null : Math.round(service.price * 100) * count / 100 });
+    setError(''); setNotice('');
   }
-
-  return (
-    <main>
-      <header>
-        <p className="eyebrow">SIMPLE SERVICE QUOTES</p>
-        <h1>QuoteFlow</h1>
-        <p>Your services. Your prices. A clear quote in seconds.</p>
-      </header>
-      <nav className="view-nav" aria-label="QuoteFlow-View">
-        <button
-          className={activeView === "business" ? "active" : ""}
-          onClick={() => setActiveView("business")}
-        >
-          Business
-        </button>
-
-        <button
-          className={activeView === "customer" ? "active" : ""}
-          onClick={() => setActiveView("customer")}
-        >
-          Customer
-        </button>
-      </nav>
+  return <>
+    <div className="section-heading workspace-heading"><div><p className="eyebrow">{business ? user.businessName : `WELCOME, ${user.name}`}</p><h2>{business ? 'Your business, at a glance.' : 'Let’s make something.'}</h2><p className="muted">{business ? `${data?.quotes.filter(item => item.status === 'pending').length ?? 0} requests waiting for review` : 'Choose a business and share your idea.'}</p></div><button disabled={busy} className="secondary" onClick={() => { setError(''); refresh().catch(handleError); }}>Refresh</button></div>
+    {error && <p className="error feedback" role="alert">{error}</p>}<p className="notice" role="status">{notice}</p>
+    {!data ? <p className="muted" role="status">{error ? 'Your workspace could not load.' : 'Loading your workspace…'}</p> : <>
+      {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setData(null); setSelectedServiceId(''); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
+      {business && legacyServices.length > 0 && data.services.length === 0 && <div className="legacy-import"><p className="muted">There are {legacyServices.length} services saved from your earlier demo in this browser. Add them to this business account?</p><button disabled={busy} className="secondary" onClick={async () => { if (await mutate('/services/import', 'POST', { services: legacyServices }, 'Earlier services added to your account.')) setLegacyServices([]); }}>Import my earlier services</button></div>}
       <div className="layout">
-        {activeView === "business" && (
-          <ServiceEditor services={services} onChange={handleServicesChange} />
-        )}
-
-        {activeView === "customer" && (
-          <>
-            <section className="panel" aria-labelledby="customer-heading">
-              <h2 id="customer-heading">Create a quote</h2>
-              <p className="muted">
-                Choose a service and tell us how many you need.
-              </p>
-            </section>
-            <QuoteForm
-              services={services}
-              selectedServiceId={selectedServiceId}
-              onServiceChange={(value) => {
-                setSelectedServiceId(value);
-                clearQuote();
-              }}
-              request={request}
-              setRequest={(value) => {
-                setRequest(value);
-                clearQuote();
-              }}
-              quantity={quantity}
-              setQuantity={(value) => {
-                setQuantity(value);
-                clearQuote();
-              }}
-              onGenerate={handleGenerateQuote}
-            />
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-            <div aria-live="polite">{quote && <QuoteCard quote={quote} />}</div>
-          </>
-        )}
+        {business ? <ServiceEditor services={data.services} busy={busy} onSave={service => mutate(service.id ? `/services/${service.id}` : '/services', service.id ? 'PATCH' : 'POST', { name: service.name, price: service.price }, 'Service saved.')} onRemove={id => mutate(`/services/${id}`, 'DELETE', undefined, 'Service removed. Existing quotes are unchanged.')} /> : <section className="panel"><p className="eyebrow">01 / YOUR PROJECT</p><h2>Request a quote</h2>{!data.businessId ? <p className="muted">No businesses have joined yet. A business owner needs to create an account before you can request a quote.</p> : <>
+          <fieldset disabled={busy}><QuoteForm services={data.services} selectedServiceId={selectedServiceId} onServiceChange={value => { setSelectedServiceId(value); clearQuote(); }} request={request} setRequest={value => { setRequest(value); clearQuote(); }} quantity={quantity} setQuantity={value => { setQuantity(value); clearQuote(); }} onGenerate={generate} onGenerateAI={generateAI} busy={busy} /></fieldset>
+          {quote && <><QuoteCard quote={quote} /><button disabled={busy} className="submit-request" onClick={async () => { if (await mutate('/quotes', 'POST', { businessId: data.businessId, serviceId: selectedServiceId, request: quote.request, quantity: quote.quantity }, 'Request sent. The business will review your quote.')) setQuote(null); }}>{busy ? 'Sending…' : 'Submit for approval'}</button></>}
+        </>}</section>}
+        <section className="panel"><p className="eyebrow">{business ? 'REVIEW & APPROVE' : '02 / WHAT’S NEXT'}</p><h2>{business ? 'Quote requests' : 'Your requests'}</h2>
+          {data.quotes.length === 0 && <div className="empty-state"><span aria-hidden="true">↗</span><h3>A little space for big ideas.</h3><p className="muted">Submitted requests and their progress will appear here.</p></div>}
+          {[...data.quotes].reverse().map(item => <article className="request-card" key={item.id}><div className="request-heading"><h3>{item.name}</h3><span className={`status ${item.status}`}>{item.status === 'pending' ? 'Pending review' : item.status}</span></div><p className="muted">{business ? item.customerName : item.businessName}</p><p className="details muted">{item.request || 'No additional details'}</p><p className="request-total">{item.total === null ? 'Price to be confirmed' : `$${item.total.toFixed(2)}`} <span className="muted">· {item.quantity} units</span></p>
+            {business && item.status === 'pending' && <Review quote={item} busy={busy} onUpdate={changes => mutate(`/quotes/${item.id}`, 'PATCH', changes, changes.status === 'approved' ? 'Quote approved.' : 'Quote rejected.')} />}
+            {!business && item.status === 'approved' && <div className="actions"><button disabled={busy} onClick={() => mutate(`/quotes/${item.id}`, 'PATCH', { status: 'accepted' }, 'Quote accepted.')}>Accept quote</button><button disabled={busy} className="secondary" onClick={() => mutate(`/quotes/${item.id}`, 'PATCH', { status: 'declined' }, 'Quote declined.')}>Decline</button></div>}
+            {item.status === 'accepted' && <p className="muted">Quote accepted. Contact the business to arrange payment.</p>}
+          </article>)}
+        </section>
       </div>
-      <footer>
-        Prices in USD. Business services are saved in this browser.
-      </footer>
-    </main>
-  );
+    </>}
+  </>;
 }
 
-export default App;
+export default function App() {
+  const [theme, setTheme] = useState(() => { try { return readSaved(localStorage, 'quoteflow-theme', window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch { return 'light'; } });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
+  useEffect(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem('quoteflow-theme', JSON.stringify(theme)); } catch { /* Theme still works without storage. */ } }, [theme]);
+  useEffect(() => {
+    const controller = new AbortController();
+    api('/auth/session', { signal: controller.signal }).then(result => setUser(result.user)).catch(error => { if (error.name !== 'AbortError') setError(error.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+  const expired = useCallback(() => { setUser(null); setRecoveryCode(''); setError('Your session ended. Please sign in again.'); }, []);
+  // Other tabs must clear account-specific screens when sign-in changes.
+  useEffect(() => {
+    const check = () => api('/auth/session').then(result => { if (result.user?.id !== user?.id) { setUser(result.user); setRecoveryCode(''); } }).catch(() => {});
+    window.addEventListener('focus', check);
+    return () => window.removeEventListener('focus', check);
+  }, [user?.id]);
+  async function logout() {
+    setSigningOut(true); setError('');
+    try { await api('/auth/logout', { method: 'POST', accountId: user.id }); setUser(null); setRecoveryCode(''); }
+    catch (error) { setError(error.message); }
+    finally { setSigningOut(false); }
+  }
+  return <main><header><div><p className="eyebrow">LESS ADMIN. MORE CREATING.</p><h1>QuoteFlow<span> AI</span></h1><p className="muted">Your next project, beautifully simple.</p></div><div className="actions"><button className="secondary theme-toggle" aria-label="Dark mode" aria-pressed={theme === 'dark'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ Light mode' : '☾ Dark mode'}</button>{user && <button disabled={signingOut} className="secondary" onClick={logout}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}</div></header>
+    {user && <div className="account-bar"><strong>{user.name}</strong><span className="status">{user.role === 'business' ? 'Business owner' : 'Customer'}</span><span className="muted">{user.email}</span></div>}
+    {error && <p className="error feedback" role="alert">{error}</p>}
+    {loading ? <p role="status">Opening QuoteFlow…</p> : recoveryCode ? <RecoveryCode code={recoveryCode} onDone={() => setRecoveryCode('')} /> : user ? <Workspace key={user.id} user={user} onSessionExpired={expired} /> : <AccountForm onSignedIn={result => { setUser(result.user); setRecoveryCode(result.recoveryCode || ''); setError(''); }} />}
+    <footer><span>QuoteFlow AI</span><p>USD · Account data is saved on the server. AI drafts require business approval. PayPal checkout is not connected.</p></footer>
+  </main>;
+}

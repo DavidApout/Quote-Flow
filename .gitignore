@@ -27,3 +27,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+# Private account database
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
