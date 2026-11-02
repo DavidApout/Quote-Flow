@@ -1,4 +1,4 @@
-import { draftQuote } from './ai.mjs';
+import { reviewRequest } from './ai.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -38,7 +38,7 @@ async function bodyOf(req) {
   catch { fail(400, 'Invalid request data.'); }
 }
 
-export async function createApi({ database = ':memory:', origin = 'http://127.0.0.1:5173', secure = false, now = Date.now, aiDraft = draftQuote } = {}) {
+export async function createApi({ database = ':memory:', origin = 'http://127.0.0.1:5173', secure = false, now = Date.now, aiReview = reviewRequest } = {}) {
   const db = new DatabaseSync(database);
   db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
@@ -49,10 +49,14 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
     CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES users(id), customer_id TEXT NOT NULL REFERENCES users(id),
       name TEXT NOT NULL, request TEXT NOT NULL, quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 10000), cents INTEGER,
       status TEXT NOT NULL CHECK(status IN ('pending','approved','accepted','declined','rejected')), created INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS quote_messages (id TEXT PRIMARY KEY, quote_id TEXT NOT NULL REFERENCES quotes(id), sender_id TEXT NOT NULL REFERENCES users(id), body TEXT NOT NULL, created INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS messages_quote ON quote_messages(quote_id, created);
+    CREATE TABLE IF NOT EXISTS quote_reviews (quote_id TEXT PRIMARY KEY REFERENCES quotes(id), review TEXT NOT NULL, created INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS quotes_customer ON quotes(customer_id);
     CREATE INDEX IF NOT EXISTS quotes_business ON quotes(business_id);`);
   const dummyHash = await hashPassword(randomBytes(24).toString('hex'));
   const attempts = new Map();
+  const reviewing = new Set();
   let activeHashes = 0;
   function limit(key, max = 20) {
     const time = now();
@@ -183,17 +187,64 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         else { const body = await bodyOf(req); db.prepare('UPDATE services SET name = ?, cents = ? WHERE id = ?').run(text(body.name, 100, 'service name'), money(body.price), service.id); }
         return send(res, 200, { ok: true });
       }
-      if (path === '/api/quotes/draft' && method === 'POST') {
-        if (user.role !== 'customer') fail(403, 'Only customers can draft quotes.');
+      if (path === '/api/requests/guide' && method === 'POST') {
+        if (user.role !== 'customer') fail(403, 'Only customers can use the request assistant.');
         const body = await bodyOf(req);
         const businessId = text(body.businessId, 100, 'business');
         const request = text(body.request, 2000, 'request description');
+        if (!Number.isSafeInteger(body.quantity) || body.quantity < 1 || body.quantity > 10000) fail(400, 'Enter a valid quantity.');
         if (!db.prepare("SELECT id FROM users WHERE id = ? AND role = 'business'").get(businessId)) fail(404, 'Business not found.');
         const services = db.prepare('SELECT id, name, cents FROM services WHERE business_id = ? ORDER BY rowid LIMIT 101').all(businessId);
-        if (!services.length) fail(400, 'This business has no services yet. Submit a custom request instead.');
-        if (services.length > 100) fail(400, 'This catalog is too large for AI drafting. Please choose a service manually.');
-        limit(`ai:${user.id}`, 10);
-        return send(res, 200, await aiDraft({ request, services }));
+        if (services.length > 100) fail(400, 'This catalog is too large for an AI follow-up. You can submit without AI.');
+        const service = services.find(item => item.id === body.serviceId);
+        if (body.serviceId !== 'custom' && !service) fail(404, 'Service no longer available. Choose another service.');
+        limit(`customer-guide:${user.id}`, 10);
+        const result = await aiReview({ quote: { name: service?.name || 'Custom request', quantity: body.quantity, request }, services });
+        return send(res, 200, { question: result.questions[0] || null });
+      }
+      const messagesMatch = path.match(/^\/api\/quotes\/([\w-]+)\/messages$/);
+      if (messagesMatch && ['GET', 'POST'].includes(method)) {
+        const quote = db.prepare('SELECT * FROM quotes WHERE id = ? AND (business_id = ? OR customer_id = ?)').get(messagesMatch[1], user.id, user.id);
+        if (!quote) fail(404, 'Quote not found.');
+        if (method === 'POST') {
+          const body = await bodyOf(req);
+          const message = text(body.message, 3000, 'message');
+          if (db.prepare('SELECT COUNT(*) AS count FROM quote_messages WHERE quote_id = ?').get(quote.id).count >= 100) fail(409, 'This conversation has reached its 100-message limit.');
+          limit(`message:${user.id}`, 30);
+          db.prepare('INSERT INTO quote_messages VALUES (?, ?, ?, ?, ?)').run(randomUUID(), quote.id, user.id, message, now());
+        }
+        const messages = db.prepare(`SELECT m.id, m.body, m.created, u.role AS role, u.name AS senderName FROM quote_messages m JOIN users u ON u.id = m.sender_id WHERE m.quote_id = ? ORDER BY m.created, m.rowid`).all(quote.id);
+        return send(res, 200, { messages });
+      }
+      const reviewMatch = path.match(/^\/api\/quotes\/([\w-]+)\/review$/);
+      if (reviewMatch && ['GET', 'POST', 'PATCH'].includes(method)) {
+        if (user.role !== 'business') fail(403, 'Only business owners can review requests with AI.');
+        const quote = db.prepare('SELECT * FROM quotes WHERE id = ? AND business_id = ?').get(reviewMatch[1], user.id);
+        if (!quote) fail(404, 'Quote not found.');
+        const saved = db.prepare('SELECT review, created FROM quote_reviews WHERE quote_id = ?').get(quote.id);
+        if (method === 'GET') return send(res, 200, { review: saved ? { ...JSON.parse(saved.review), created: saved.created } : null });
+        if (method === 'PATCH') {
+          const body = await bodyOf(req);
+          if (!saved) fail(404, 'Generate an AI review first.');
+          const review = { ...JSON.parse(saved.review), reply: text(body.reply, 3000, 'reply') };
+          db.prepare('UPDATE quote_reviews SET review = ? WHERE quote_id = ?').run(JSON.stringify(review), quote.id);
+          return send(res, 200, { review: { ...review, created: saved.created } });
+        }
+        // Repeated clicks return the saved review without another billable call.
+        if (saved) return send(res, 200, { review: { ...JSON.parse(saved.review), created: saved.created } });
+        if (quote.status !== 'pending') fail(409, 'AI review is available for pending requests.');
+        if (reviewing.has(quote.id)) fail(409, 'This request is already being reviewed. Try again shortly.');
+        const services = db.prepare('SELECT id, name, cents FROM services WHERE business_id = ? ORDER BY rowid LIMIT 101').all(user.id);
+        if (services.length > 100) fail(400, 'AI review supports up to 100 catalog services. Review this request yourself.');
+        limit(`ai-review:${user.id}`, 10);
+        reviewing.add(quote.id);
+        try {
+          const review = await aiReview({ quote: { name: quote.name, quantity: quote.quantity, request: quote.request }, services });
+          if (db.prepare('SELECT status FROM quotes WHERE id = ?').get(quote.id)?.status !== 'pending') fail(409, 'This quote changed during AI review. Refresh to see its current status.');
+          const created = now();
+          db.prepare('INSERT INTO quote_reviews VALUES (?, ?, ?)').run(quote.id, JSON.stringify(review), created);
+          return send(res, 200, { review: { ...review, created } });
+        } finally { reviewing.delete(quote.id); }
       }
       if (path === '/api/quotes' && method === 'POST') {
         if (user.role !== 'customer') fail(403, 'Only customers can request quotes.');

@@ -6,6 +6,8 @@ import AccountForm, { RecoveryCode } from './components/AccountForm';
 import QuoteCard from './components/QuoteCard';
 import QuoteForm from './components/QuoteForm';
 import ServiceEditor from './components/ServiceEditor';
+import RequestDiscussion from './components/RequestDiscussion';
+import CustomerAssistant from './components/CustomerAssistant';
 
 function Review({ quote, onUpdate, busy }) {
   const [price, setPrice] = useState(String(quote.price ?? ''));
@@ -27,6 +29,7 @@ function Workspace({ user, onSessionExpired }) {
   const business = user.role === 'business';
   const [view, setView] = useState('dashboard');
   const [filter, setFilter] = useState('all');
+  const [customerMode, setCustomerMode] = useState('guided');
   const [search, setSearch] = useState('');
   const visibleQuotes = [...(data?.quotes || [])].reverse().filter(item =>
     (filter === 'all' || item.status === filter) &&
@@ -63,20 +66,6 @@ function Workspace({ user, onSessionExpired }) {
     } catch (error) { handleError(error); return false; }
     finally { pending.current = false; setBusy(false); }
   }
-  async function generateAI() {
-    if (pending.current) return;
-    if (!request.trim()) { setError('Describe your request first, including the quantity.'); return; }
-    pending.current = true; setBusy(true); setQuote(null); setError(''); setNotice('');
-    try {
-      const result = await api('/quotes/draft', { method: 'POST', accountId: user.id, body: { businessId: data.businessId, request } });
-      if (result.clarifyingQuestion) { setNotice(result.clarifyingQuestion); return; }
-      setSelectedServiceId(result.quote.serviceId);
-      setQuantity(result.quote.quantity);
-      setQuote(result.quote);
-      setNotice(`AI draft: ${result.quote.summary} Review the service and quantity before submitting.`);
-    } catch (error) { handleError(error); }
-    finally { pending.current = false; setBusy(false); }
-  }
   function clearQuote() { setQuote(null); setError(''); setNotice(''); }
   function generate(event) {
     event.preventDefault();
@@ -92,7 +81,7 @@ function Workspace({ user, onSessionExpired }) {
     <div className="section-heading workspace-heading"><div><p className="eyebrow">{business ? user.businessName : `WELCOME, ${user.name}`}</p><h2>{business ? view === 'services' ? 'Your service catalog.' : view === 'inbox' ? 'Every request. One inbox.' : 'Your business, at a glance.' : 'Let’s make something.'}</h2><p className="muted">{business ? `${data?.quotes.filter(item => item.status === 'pending').length ?? 0} requests waiting for review` : 'Choose a business and share your idea.'}</p></div><button disabled={busy} className="secondary" onClick={() => { setError(''); refresh().catch(handleError); }}>Refresh</button></div>
     {error && <p className="error feedback" role="alert">{error}</p>}<p className="notice" role="status">{notice}</p>
     {!data ? <p className="muted" role="status">{error ? 'Your workspace could not load.' : 'Loading your workspace…'}</p> : <>
-      {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setData(null); setSelectedServiceId(''); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
+      {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setData(null); setSelectedServiceId(''); setRequest(''); setQuantity(1); setCustomerMode('guided'); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
       {business && legacyServices.length > 0 && data.services.length === 0 && <div className="legacy-import"><p className="muted">There are {legacyServices.length} services saved from your earlier demo in this browser. Add them to this business account?</p><button disabled={busy} className="secondary" onClick={async () => { if (await mutate('/services/import', 'POST', { services: legacyServices }, 'Earlier services added to your account.')) setLegacyServices([]); }}>Import my earlier services</button></div>}
       {business && <>
         <nav className="view-nav" aria-label="Business workspace">{[['dashboard', 'Overview'], ['inbox', 'Request inbox'], ['services', 'Services']].map(([id, label]) => <button key={id} className={view === id ? 'active' : ''} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>{label}{id === 'inbox' && <span className="nav-count">{data.quotes.filter(q => q.status === 'pending').length}</span>}</button>)}</nav>
@@ -104,7 +93,8 @@ function Workspace({ user, onSessionExpired }) {
       </>}
       <div className={business ? 'business-content' : 'layout'}>
         {business ? view === 'services' && <ServiceEditor services={data.services} busy={busy} onSave={service => mutate(service.id ? `/services/${service.id}` : '/services', service.id ? 'PATCH' : 'POST', { name: service.name, price: service.price }, 'Service saved.')} onRemove={id => mutate(`/services/${id}`, 'DELETE', undefined, 'Service removed. Existing quotes are unchanged.')} /> : <section className="panel"><p className="eyebrow">01 / YOUR PROJECT</p><h2>Request a quote</h2>{!data.businessId ? <p className="muted">No businesses have joined yet. A business owner needs to create an account before you can request a quote.</p> : <>
-          <fieldset disabled={busy}><QuoteForm services={data.services} selectedServiceId={selectedServiceId} onServiceChange={value => { setSelectedServiceId(value); clearQuote(); }} request={request} setRequest={value => { setRequest(value); clearQuote(); }} quantity={quantity} setQuantity={value => { setQuantity(value); clearQuote(); }} onGenerate={generate} onGenerateAI={generateAI} busy={busy} /></fieldset>
+          <div className="view-nav" aria-label="Request entry mode"><button disabled={busy} className={customerMode === 'guided' ? 'active' : ''} onClick={() => { setCustomerMode('guided'); clearQuote(); }}>Help me describe it</button><button disabled={busy} className={customerMode === 'form' ? 'active' : ''} onClick={() => setCustomerMode('form')}>Use a form</button></div>
+          {customerMode === 'guided' ? <CustomerAssistant key={data.businessId} services={data.services} businessId={data.businessId} accountId={user.id} onSessionExpired={onSessionExpired} onUse={draft => { setSelectedServiceId(draft.serviceId); setQuantity(draft.quantity); setRequest(draft.request); clearQuote(); setCustomerMode('form'); setNotice('Your answers are ready. Review the form, then preview and submit.'); }} /> : <fieldset disabled={busy}><QuoteForm services={data.services} selectedServiceId={selectedServiceId} onServiceChange={value => { setSelectedServiceId(value); clearQuote(); }} request={request} setRequest={value => { setRequest(value); clearQuote(); }} quantity={quantity} setQuantity={value => { setQuantity(value); clearQuote(); }} onGenerate={generate} /></fieldset>}
           {quote && <><QuoteCard quote={quote} /><button disabled={busy} className="submit-request" onClick={async () => { if (await mutate('/quotes', 'POST', { businessId: data.businessId, serviceId: selectedServiceId, request: quote.request, quantity: quote.quantity }, 'Request sent. The business will review your quote.')) setQuote(null); }}>{busy ? 'Sending…' : 'Submit for approval'}</button></>}
         </>}</section>}
         <section className="panel" hidden={business && view === 'services'}><p className="eyebrow">{business ? 'REVIEW & APPROVE' : '02 / WHAT’S NEXT'}</p><div className="request-heading"><h2>{business ? (view === 'dashboard' ? 'Recent requests' : 'Request inbox') : 'Your requests'}</h2>{business && view === 'dashboard' && <button className="text-button" onClick={() => setView('inbox')}>View all →</button>}</div>
@@ -112,6 +102,7 @@ function Workspace({ user, onSessionExpired }) {
           {data.quotes.length > 0 && visibleQuotes.length === 0 && <p className="empty-state">No requests match your search or status filter.</p>}
           {data.quotes.length === 0 && <div className="empty-state"><span aria-hidden="true">↗</span><h3>A little space for big ideas.</h3><p className="muted">Submitted requests and their progress will appear here.</p></div>}
           {(business && view === 'dashboard' ? [...data.quotes].reverse().slice(0, 3) : visibleQuotes).map(item => <article className="request-card" key={item.id}><div className="request-heading"><h3>{item.name}</h3><span className={`status ${item.status}`}>{item.status === 'pending' ? 'Pending review' : item.status}</span></div><p className="muted">{business ? item.customerName : item.businessName}</p><p className="details muted">{item.request || 'No additional details'}</p><p className="muted request-reference">Request #{item.id.slice(0, 8)}</p><p className="request-total">{item.total === null ? 'Price to be confirmed' : `$${item.total.toFixed(2)}`} <span className="muted">· {item.quantity} units</span></p>
+            <RequestDiscussion quote={item} user={user} onSessionExpired={onSessionExpired} />
             {business && item.status === 'pending' && <Review quote={item} busy={busy} onUpdate={changes => mutate(`/quotes/${item.id}`, 'PATCH', changes, changes.status === 'approved' ? 'Quote approved.' : 'Quote rejected.')} />}
             {!business && item.status === 'approved' && <div className="actions"><button disabled={busy} onClick={() => mutate(`/quotes/${item.id}`, 'PATCH', { status: 'accepted' }, 'Quote accepted.')}>Accept quote</button><button disabled={busy} className="secondary" onClick={() => mutate(`/quotes/${item.id}`, 'PATCH', { status: 'declined' }, 'Quote declined.')}>Decline</button></div>}
             {item.status === 'accepted' && <p className="muted">Quote accepted. Contact the business to arrange payment.</p>}
@@ -154,6 +145,6 @@ export default function App() {
     {error && <p className="error feedback" role="alert">{error}</p>}
     {customerEntry && !user && <section className="share-panel"><div><h2>Request a quote</h2><p className="muted">Sign in or create a customer account to describe your project and track approval. Your selected business is remembered.</p></div></section>}
     {loading ? <p role="status">Opening QuoteFlow…</p> : recoveryCode ? <RecoveryCode code={recoveryCode} onDone={() => setRecoveryCode('')} /> : user ? <Workspace key={user.id} user={user} onSessionExpired={expired} /> : <AccountForm onSignedIn={result => { setUser(result.user); setRecoveryCode(result.recoveryCode || ''); setError(''); }} />}
-    <footer><span>QuoteFlow AI</span><p>USD · Account data is saved on the server. AI drafts require business approval. PayPal checkout is not connected.</p></footer>
+    <footer><span>QuoteFlow AI</span><p>USD · Account data is saved on the server. AI reviews are suggestions. You control pricing and approval. PayPal checkout is not connected.</p></footer>
   </main>;
 }

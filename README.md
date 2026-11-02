@@ -28,7 +28,7 @@ The workspace refreshes every 15 seconds, when focused, or using the Refresh but
 - Mutations require the configured origin and a custom request header. Cross-origin access is not enabled. Rate limiting applies to authentication attempts; hashing concurrency is bounded.
 - Data lives in `data/quoteflow.sqlite` by default and persists across restarts. Database files are excluded from Git. Back up the database using SQLite's backup mechanism or stop the server before copying its database files.
 - The previous localStorage demo values are left intact. Services can be imported explicitly into a business account. Old unowned demo quotes are not assigned to real accounts automatically. New quotes and services are saved in the database; only the theme remains browser-local.
-- AI drafting has a server integration (see below); live validation requires an API key. PayPal payments are not connected.
+- Business AI review has a server integration (see below); live validation requires an API key. PayPal payments are not connected.
 
 ## Tests
 
@@ -53,23 +53,93 @@ APP_ORIGIN=https://your-domain.example HOST=0.0.0.0 PORT=5173 npm start
 
 Implementation references: [Node crypto](https://nodejs.org/api/crypto.html), [Node SQLite](https://nodejs.org/api/sqlite.html), [OWASP session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 
-## AI quote drafts
+## Business AI review assistant
 
-Set `OPENAI_API_KEY` in your local `.env` (never commit it); optionally set
-`OPENAI_MODEL` to a Responses API model supporting structured outputs. Restart
-`npm run dev`. The default is `gpt-4.1-mini`. API billing/access is required.
+Customers can use the guided request assistant or the existing form. In the business inbox, use **Review with AI** on a
+pending request to get:
 
-As a customer, choose a business, describe one catalog service and its quantity,
-and click **Draft with AI**. Review the proposed service and quantity, then submit
-for business approval. Ambiguous descriptions receive a clarifying question;
-edit the description and try again. Manual previews remain available.
+- A brief summary of what the customer asked for.
+- Missing details and suggested follow-up questions.
+- Up to three possible matches from this business's catalog. Prices and totals
+  are calculated on the server from saved rates and the request quantity.
+- An editable reply draft with **Save reply draft** and **Copy reply**.
 
-Only the request text and selected business's service IDs/names go to OpenAI.
-The server calculates prices from its catalog. Drafting does not save, approve,
-or pay a quote. Submission reloads the current catalog price. The endpoint
-requires a customer session and allows 10 attempts per 15 minutes per account
-(per server process). PayPal checkout is still pending.
+Reviews and saved reply edits persist in SQLite (`quote_reviews`). Repeated clicks
+reuse the saved review rather than calling the provider again. Suggestions do not
+change the service, price, or quote status; the owner still edits and approves.
+Saving or copying a draft sends nothing. **Send reply to customer** explicitly
+delivers the edited text to the request conversation. Unsaved reply edits are labeled and
+must be saved before navigating away. Matches are alternatives, not combined
+line items, and show catalog prices at review time.
 
-Validation: `npm test`, `npm run lint`, `npm run build`. AI tests mock the provider;
-a live smoke test requires an API key: request a known service with quantity,
-check its total, submit, and approve from the business account.
+Set `OPENAI_API_KEY` in your private `.env` (never commit it). The existing
+`OPENAI_MODEL` setting is retained, defaulting to `gpt-4.1-mini`. Restart the Node
+server after server-code or configuration changes; a browser refresh alone does
+not reload backend code. API access and billing are required.
+
+The provider receives the stored request's service name, quantity and description,
+and the owning business's catalog IDs/names. Account names, emails, session tokens,
+and catalog prices are not added to the payload. Free-text descriptions can still
+contain personal information; the UI discloses the transfer. The Responses API
+request uses `store: false`. AI text can be wrong; check it before using it.
+
+Access is owner-only, including reading or editing saved reviews. The server looks
+up the quote and catalog itself, applies a limit of 10 new review attempts per
+15 minutes per owner (per process), and prevents concurrent review calls for the
+same request. Errors, refusals, incomplete results, unknown service IDs, and
+malformed outputs produce a readable error without changing the quote. Empty
+catalogs are supported for custom work. No automatic retries or messages occur.
+
+`npm test` covers provider validation with mocked responses, ownership and CSRF
+checks, saved reply persistence, price integrity, rate limits, and failure recovery.
+A live provider test requires explicit approval to send the chosen test data.
+
+Implementation reference: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Latest local verification: 22 tests, lint, and build passed. Browser saved-review
+and editable-reply behavior was checked using an isolated labeled fixture. Live
+fictional-data testing was blocked by provider credentials/access rejection;
+check the private server key/model access before expecting live reviews to work.
+
+## Customer assistant and request conversations
+
+The customer workspace starts with **Help me describe it**. The guide collects an
+idea, chosen catalog service (or custom work), quantity, timing, and job details.
+Its detail question adapts to categories such as shirts, catering, design,
+photography, cleaning, or custom work. These steps are local rules, not generative
+AI, and work without an API key. It preserves the customer's wording in an editable
+summary. **Use this request** fills the existing QuoteForm; the customer must still
+preview and explicitly submit. Catalog estimates use stored unit prices; custom
+requests wait for business pricing. Guide drafts are held in memory and are lost
+on refresh or switching modes/businesses; submitted requests persist in SQLite.
+
+The optional **Get an AI follow-up** sends the current summary, quantity, selected
+service and that business's catalog names/IDs to the existing provider integration.
+It returns one suggested question without saving a request, inventing a price,
+or approving anything. Customers can answer and explicitly add it to their summary.
+There are 10 attempts per 15 minutes per customer, per server process. Provider
+errors leave the editable summary usable. No new live provider calls were made
+for this feature; previous credential/access rejection remains unresolved.
+
+Both parties can open **Messages & questions** on a submitted request. Business
+owners can write a question or send their edited AI reply. Customers can reply from
+the same request card. Only the request's customer and business owner can read or
+write messages. Names, roles, quote ownership, and timestamps are server assigned;
+the client cannot impersonate another sender. Messages persist in `quote_messages`.
+Each message is limited to 3,000 characters, each conversation to 100 messages,
+and sending to 30 messages per 15 minutes per account (per process). Messages
+never change the approved price or status. A scope change needs owner review.
+
+Open conversations refresh every 15 seconds, on window focus, or via Refresh
+messages. There are no email notifications, unread badges, attachments, or message
+editing/deletion yet. Conversation text is not automatically included in a saved
+AI review; the business should read it before approving. The existing AI review is
+a snapshot, not an ongoing autonomous agent.
+
+Validation: 22 automated tests passed, including conversation isolation, sender
+identity, empty/oversized message rejection, persistence after restart, assistant
+catalog scoping, and no automatic quote creation. Browser testing confirmed the
+guided shirt request, $300 preview, submission, and appearance in the owner inbox;
+phone width had no horizontal overflow. The browser's message send/reply check
+was interrupted by the automation service and remains unverified visually;
+its API workflow passed the automated tests.

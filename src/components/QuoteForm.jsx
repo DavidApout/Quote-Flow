@@ -1,4 +1,4 @@
-function QuoteForm({ services, selectedServiceId, onServiceChange, request, setRequest, quantity, setQuantity, onGenerate, onGenerateAI, busy }) {
+function QuoteForm({ services, selectedServiceId, onServiceChange, request, setRequest, quantity, setQuantity, onGenerate }) {
   const service = services.find(service => service.id === selectedServiceId)
   return (
     <form onSubmit={onGenerate}>
@@ -13,11 +13,8 @@ function QuoteForm({ services, selectedServiceId, onServiceChange, request, setR
       <label htmlFor="request">Service details <span className="muted">{selectedServiceId === "custom" ? "(required)" : "(optional)"}</span></label>
       <textarea required={selectedServiceId === "custom"} id="request" value={request} onChange={event => setRequest(event.target.value)} placeholder="Sizes, colors, or other details" maxLength={2000} />
       <p className="muted">All requests require business approval before acceptance.</p>
-      <div className="actions">
-        <button type="button" disabled={busy || !request.trim() || services.length === 0} onClick={onGenerateAI}>{busy ? 'Please wait…' : 'Draft with AI'}</button>
-        <button type="submit" className="secondary">Preview manually</button>
-      </div>
-      <p className="muted">For an AI draft, describe one service and the quantity above. Your description is sent to OpenAI. Review the draft before submitting.</p>
+      <button type="submit">Preview request</button>
+      <p className="muted">The business may use AI to help review your description. Avoid including sensitive information.</p>
       {services.length === 0 && <p className="muted">You can still submit a custom request.</p>}
     </form>
   )

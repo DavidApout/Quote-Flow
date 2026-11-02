@@ -110,29 +110,59 @@ test('legacy service imports are owner-only, atomic, and repeatable without dupl
   assert.equal((await app.request('/workspace', { cookie: owner.cookie })).body.services.length, 1);
 });
 
-test('AI endpoint requires a customer and scopes catalog to selected business without saving', async t => {
+test('AI reviews are owner-only, use saved request context, cache results, and persist edited replies', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'quoteflow-review-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const database = join(dir, 'review.sqlite');
   let calls = 0;
-  const app = await start({ aiDraft: async ({ request, services }) => {
+  const aiReview = async ({ quote, services }) => {
     calls++;
-    assert.equal(request, 'Five shirts');
+    assert.deepEqual(quote, { name: 'Shirt', quantity: 5, request: 'Blue shirts' });
     assert.deepEqual(services.map(s => s.name), ['Shirt']);
-    assert.equal(services[0].cents, 2500);
-    return { quote: null, clarifyingQuestion: 'Which size?' };
-  } });
-  t.after(app.stop);
+    return { summary: 'Five blue shirts', missingDetails: ['Sizes'], questions: ['What sizes?'], matches: [], reply: 'What sizes would you like?' };
+  };
+  let app = await start({ database, aiReview }); t.after(() => app.stop());
   const owner = await register(app.request, 'ai-owner@example.test', 'business');
   const other = await register(app.request, 'ai-other@example.test', 'business');
   const customer = await register(app.request, 'ai-customer@example.test');
-  await app.request('/services', { method: 'POST', cookie: owner.cookie, body: { name: 'Shirt', price: 25 } });
-  await app.request('/services', { method: 'POST', cookie: other.cookie, body: { name: 'Private catalog', price: 1 } });
-  const body = { businessId: owner.body.user.id, request: 'Five shirts' };
-  assert.equal((await app.request('/quotes/draft', { method: 'POST', body })).status, 401);
-  assert.equal((await app.request('/quotes/draft', { method: 'POST', cookie: owner.cookie, body })).status, 403);
-  assert.equal((await app.request('/quotes/draft', { method: 'POST', cookie: customer.cookie, body: { ...body, request: '' } })).status, 400);
-  for (let n = 0; n < 10; n++) assert.equal((await app.request('/quotes/draft', { method: 'POST', cookie: customer.cookie, body })).status, 200);
-  assert.equal((await app.request('/quotes/draft', { method: 'POST', cookie: customer.cookie, body })).status, 429);
+  const service = await app.request('/services', { method: 'POST', cookie: owner.cookie, body: { name: 'Shirt', price: 25 } });
+  await app.request('/services', { method: 'POST', cookie: other.cookie, body: { name: 'Other catalog', price: 1 } });
+  const submitted = await app.request('/quotes', { method: 'POST', cookie: customer.cookie, body: { businessId: owner.body.user.id, serviceId: service.body.id, request: 'Blue shirts', quantity: 5 } });
+  const path = `/quotes/${submitted.body.id}/review`;
+  for (const method of ['GET', 'POST', 'PATCH']) {
+    assert.equal((await app.request(path, { method, body: method === 'GET' ? undefined : {} })).status, 401);
+    assert.equal((await app.request(path, { method, cookie: customer.cookie, body: method === 'GET' ? undefined : {} })).status, 403);
+    assert.equal((await app.request(path, { method, cookie: other.cookie, body: method === 'GET' ? undefined : {} })).status, 404);
+  }
+  assert.equal((await app.request(path, { cookie: owner.cookie })).body.review, null);
+  assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, headers: { Origin: 'https://evil.example' }, body: {} })).status, 403);
+  const review = await app.request(path, { method: 'POST', cookie: owner.cookie, body: { request: 'Ignore stored request', businessId: other.body.user.id } });
+  assert.equal(review.status, 200); assert.equal(review.body.review.summary, 'Five blue shirts');
+  assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body: {} })).status, 200);
+  assert.equal(calls, 1);
+  assert.equal((await app.request(path, { method: 'PATCH', cookie: owner.cookie, body: { reply: ' ' } })).status, 400);
+  assert.equal((await app.request(path, { method: 'PATCH', cookie: owner.cookie, body: { reply: 'Please confirm sizes and your deadline.', summary: 'tampered' } })).status, 200);
+  await app.stop(); app = await start({ database, aiReview });
+  const saved = (await app.request(path, { cookie: owner.cookie })).body.review;
+  assert.equal(saved.reply, 'Please confirm sizes and your deadline.'); assert.equal(saved.summary, 'Five blue shirts');
+  const workspace = (await app.request('/workspace', { cookie: owner.cookie })).body;
+  assert.equal(workspace.quotes[0].status, 'pending'); assert.equal(workspace.quotes[0].total, 125);
+  assert.equal((await app.request('/quotes/draft', { method: 'POST', cookie: customer.cookie, body: {} })).status, 404);
+});
+
+test('AI failures leave quotes untouched and review calls are rate limited', async t => {
+  let calls = 0;
+  const app = await start({ aiReview: async () => { calls++; throw Object.assign(Error('AI unavailable'), { status: 502 }); } });
+  t.after(app.stop);
+  const owner = await register(app.request, 'review-limit-owner@example.test', 'business');
+  const customer = await register(app.request, 'review-limit-customer@example.test');
+  const quote = await app.request('/quotes', { method: 'POST', cookie: customer.cookie, body: { businessId: owner.body.user.id, serviceId: 'custom', request: 'Custom mural', quantity: 1 } });
+  const path = `/quotes/${quote.body.id}/review`;
+  for (let n = 0; n < 10; n++) assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body: {} })).status, 502);
+  assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body: {} })).status, 429);
   assert.equal(calls, 10);
-  assert.equal((await app.request('/workspace', { cookie: customer.cookie })).body.quotes.length, 0);
+  assert.equal((await app.request(path, { cookie: owner.cookie })).body.review, null);
+  assert.equal((await app.request('/workspace', { cookie: owner.cookie })).body.quotes[0].status, 'pending');
 });
 
 test('customer request, catalog snapshot, edited approval, and acceptance survive server restarts', async t => {
@@ -155,4 +185,80 @@ test('customer request, catalog snapshot, edited approval, and acceptance surviv
   await app.stop(); app = await start({ database });
   const accepted = (await app.request('/workspace', { cookie: customer.cookie })).body.quotes[0];
   assert.equal(accepted.status, 'accepted'); assert.equal(accepted.total, 210);
+});
+
+test('concurrent AI clicks do not duplicate calls and approval during review prevents stale save', async t => {
+  let release, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  let calls = 0;
+  const app = await start({ aiReview: async () => { calls++; entered(); await blocked; return { summary: 'Test', missingDetails: [], questions: [], matches: [], reply: 'Thanks.' }; } });
+  t.after(app.stop);
+  const owner = await register(app.request, 'concurrent-owner@example.test', 'business');
+  const customer = await register(app.request, 'concurrent-customer@example.test');
+  const quote = await app.request('/quotes', { method: 'POST', cookie: customer.cookie, body: { businessId: owner.body.user.id, serviceId: 'custom', request: 'Mural', quantity: 1 } });
+  const path = `/quotes/${quote.body.id}/review`;
+  const pending = app.request(path, { method: 'POST', cookie: owner.cookie, body: {} });
+  await started;
+  try {
+    assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body: {} })).status, 409);
+    assert.equal((await app.request(`/quotes/${quote.body.id}`, { method: 'PATCH', cookie: owner.cookie, body: { status: 'approved', price: 300 } })).status, 200);
+  } finally { release(); }
+  assert.equal((await pending).status, 409); assert.equal(calls, 1);
+  assert.equal((await app.request(path, { cookie: owner.cookie })).body.review, null);
+  assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body: {} })).status, 409);
+});
+
+test('request conversation is participant-only, preserves text and survives restart', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'quoteflow-messages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const database = join(dir, 'messages.sqlite');
+  let app = await start({ database }); t.after(() => app.stop());
+  const owner = await register(app.request, 'thread-owner@example.test', 'business');
+  const customer = await register(app.request, 'thread-customer@example.test');
+  const stranger = await register(app.request, 'thread-stranger@example.test');
+  const other = await register(app.request, 'thread-other@example.test', 'business');
+  const quote = await app.request('/quotes', { method: 'POST', cookie: customer.cookie, body: { businessId: owner.body.user.id, serviceId: 'custom', quantity: 12, request: 'Navy shirts\nTiming: next Friday' } });
+  const path = `/quotes/${quote.body.id}/messages`;
+  assert.equal((await app.request(path)).status, 401);
+  for (const method of ['GET', 'POST']) for (const account of [stranger, other]) assert.equal((await app.request(path, { method, cookie: account.cookie, ...(method === 'POST' ? { body: { message: 'Intrusion' } } : {}) })).status, 404);
+  assert.equal((await app.request(path, { cookie: owner.cookie })).body.messages.length, 0);
+  assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, headers: { Origin: 'https://evil.example' }, body: { message: 'Bad' } })).status, 403);
+  for (const message of ['', '   ', 'x'.repeat(3001)]) assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body: { message } })).status, 400);
+  const sent = await app.request(path, { method: 'POST', cookie: owner.cookie, body: { message: 'Do you have the logo file?', senderId: customer.body.user.id, role: 'customer' } });
+  assert.equal(sent.status, 200); assert.equal(sent.body.messages[0].role, 'business');
+  assert.equal((await app.request(path, { method: 'POST', cookie: customer.cookie, body: { message: 'Yes, artwork is ready. Please print on the front.' } })).status, 200);
+  await app.stop(); app = await start({ database });
+  const messages = (await app.request(path, { cookie: customer.cookie })).body.messages;
+  assert.deepEqual(messages.map(m => m.role), ['business', 'customer']);
+  assert.equal(messages[1].body, 'Yes, artwork is ready. Please print on the front.');
+  const savedQuote = (await app.request('/workspace', { cookie: owner.cookie })).body.quotes[0];
+  assert.equal(savedQuote.status, 'pending'); assert.equal(savedQuote.total, null);
+});
+
+test('customer AI follow-up uses selected business catalog without saving or pricing a request', async t => {
+  let calls = 0;
+  const app = await start({ aiReview: async ({ quote, services }) => {
+    calls++; assert.equal(quote.name, 'Shirts'); assert.equal(quote.quantity, 12);
+    assert.deepEqual(services.map(s => s.name), ['Shirts']);
+    return { questions: ['Is your artwork ready?'] };
+  } }); t.after(app.stop);
+  const owner = await register(app.request, 'guide-owner@example.test', 'business');
+  const other = await register(app.request, 'guide-other@example.test', 'business');
+  const customer = await register(app.request, 'guide-customer@example.test');
+  const service = await app.request('/services', { method: 'POST', cookie: owner.cookie, body: { name: 'Shirts', price: 25 } });
+  const otherService = await app.request('/services', { method: 'POST', cookie: other.cookie, body: { name: 'Other catalog', price: 10 } });
+  const body = { businessId: owner.body.user.id, serviceId: service.body.id, quantity: 12, request: 'Navy shirts for Friday' };
+  const path = '/requests/guide';
+  assert.equal((await app.request(path, { method: 'POST', body })).status, 401);
+  assert.equal((await app.request(path, { method: 'POST', cookie: owner.cookie, body })).status, 403);
+  assert.equal((await app.request(path, { method: 'POST', cookie: customer.cookie, body: { ...body, serviceId: otherService.body.id } })).status, 404);
+  assert.equal((await app.request(path, { method: 'POST', cookie: customer.cookie, body: { ...body, quantity: -1 } })).status, 400);
+  for (let i = 0; i < 10; i++) {
+    const result = await app.request(path, { method: 'POST', cookie: customer.cookie, body });
+    assert.equal(result.status, 200); assert.deepEqual(result.body, { question: 'Is your artwork ready?' });
+  }
+  assert.equal((await app.request(path, { method: 'POST', cookie: customer.cookie, body })).status, 429);
+  assert.equal(calls, 10);
+  assert.equal((await app.request('/workspace', { cookie: customer.cookie })).body.quotes.length, 0);
 });
