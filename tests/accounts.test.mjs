@@ -134,3 +134,25 @@ test('AI endpoint requires a customer and scopes catalog to selected business wi
   assert.equal(calls, 10);
   assert.equal((await app.request('/workspace', { cookie: customer.cookie })).body.quotes.length, 0);
 });
+
+test('customer request, catalog snapshot, edited approval, and acceptance survive server restarts', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'quoteflow-workflow-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const database = join(dir, 'workflow.sqlite');
+  let app = await start({ database });
+  t.after(() => app.stop());
+  const owner = await register(app.request, 'workflow-owner@example.test', 'business');
+  const customer = await register(app.request, 'workflow-customer@example.test');
+  const service = await app.request('/services', { method: 'POST', cookie: owner.cookie, body: { name: 'Design', price: 65 } });
+  const quote = await app.request('/quotes', { method: 'POST', cookie: customer.cookie, body: { businessId: owner.body.user.id, serviceId: service.body.id, request: 'Three launch posts', quantity: 3 } });
+  assert.equal(quote.status, 201);
+  await app.request(`/services/${service.body.id}`, { method: 'PATCH', cookie: owner.cookie, body: { name: 'Design updated', price: 99 } });
+  await app.stop(); app = await start({ database });
+  const pending = (await app.request('/workspace', { cookie: owner.cookie })).body.quotes[0];
+  assert.equal(pending.total, 195); assert.equal(pending.name, 'Design'); assert.equal(pending.status, 'pending');
+  assert.equal((await app.request(`/quotes/${quote.body.id}`, { method: 'PATCH', cookie: owner.cookie, body: { status: 'approved', price: 70 } })).status, 200);
+  assert.equal((await app.request(`/quotes/${quote.body.id}`, { method: 'PATCH', cookie: customer.cookie, body: { status: 'accepted' } })).status, 200);
+  await app.stop(); app = await start({ database });
+  const accepted = (await app.request('/workspace', { cookie: customer.cookie })).body.quotes[0];
+  assert.equal(accepted.status, 'accepted'); assert.equal(accepted.total, 210);
+});

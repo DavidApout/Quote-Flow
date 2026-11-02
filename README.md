@@ -28,7 +28,7 @@ The workspace refreshes every 15 seconds, when focused, or using the Refresh but
 - Mutations require the configured origin and a custom request header. Cross-origin access is not enabled. Rate limiting applies to authentication attempts; hashing concurrency is bounded.
 - Data lives in `data/quoteflow.sqlite` by default and persists across restarts. Database files are excluded from Git. Back up the database using SQLite's backup mechanism or stop the server before copying its database files.
 - The previous localStorage demo values are left intact. Services can be imported explicitly into a business account. Old unowned demo quotes are not assigned to real accounts automatically. New quotes and services are saved in the database; only the theme remains browser-local.
-- AI pricing and PayPal payments are not connected.
+- AI drafting has a server integration (see below); live validation requires an API key. PayPal payments are not connected.
 
 ## Tests
 
