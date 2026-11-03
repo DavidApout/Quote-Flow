@@ -18,7 +18,7 @@ async function start(options = {}) {
     const res = await fetch(base + '/api' + path, { method, headers: { Origin: origin, 'Content-Type': 'application/json', 'X-QuoteFlow-Request': '1', Cookie: cookie, ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: res.status, body: await res.json(), cookie: res.headers.get('set-cookie')?.split(';')[0], cookieHeader: res.headers.get('set-cookie') };
   };
-  return { request, stop: async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); api.close(); } };
+  return { request, flushMail: api.flushMail, frameAncestors: api.frameAncestors, stop: async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); api.close(); } };
 }
 async function register(request, email, role = 'customer') {
   const result = await request('/auth/register', { method: 'POST', body: { email, password, role, name: email.split('@')[0], businessName: 'Test studio' } });
@@ -261,4 +261,234 @@ test('customer AI follow-up uses selected business catalog without saving or pri
   assert.equal((await app.request(path, { method: 'POST', cookie: customer.cookie, body })).status, 429);
   assert.equal(calls, 10);
   assert.equal((await app.request('/workspace', { cookie: customer.cookie })).body.quotes.length, 0);
+});
+
+async function enableWidget(app, owner) {
+  const result = await app.request('/widget-settings', { method: 'POST', cookie: owner.cookie, body: { enabled: true, origins: ['https://studio.example'] } });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+}
+async function previewToken(app, owner, subject) {
+  const mail = (await app.request('/notifications', { cookie: owner.cookie })).body.mail.find(m => m.subject === subject);
+  assert.ok(mail, subject);
+  const preview = await app.request(`/mail/${mail.id}/preview`, { cookie: owner.cookie });
+  assert.equal(preview.status, 200);
+  return preview.body.body.match(/#token=([a-f0-9]{64})/)[1];
+}
+
+test('guest widget supports private verification, trusted pricing, conversation, approval and notifications', async t => {
+  let time = Date.now();
+  const dir = await mkdtemp(join(tmpdir(), 'quoteflow-widget-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const database = join(dir, 'widget.sqlite');
+  let app = await start({ database, now: () => time }); t.after(() => app.stop());
+  const owner = await register(app.request, 'widget-owner@example.test', 'business');
+  const stranger = await register(app.request, 'widget-stranger@example.test', 'business');
+  const existingCustomer = await register(app.request, 'existing-guest@example.test');
+  const businessId = owner.body.user.id;
+  assert.equal((await app.request(`/public/businesses/${businessId}`)).status, 404);
+  await enableWidget(app, owner);
+  assert.equal(app.frameAncestors(businessId), "'self' https://studio.example");
+  const service = await app.request('/services', { method: 'POST', cookie: owner.cookie, body: { name: 'Shirts', price: 25 } });
+  const catalog = await app.request(`/public/businesses/${businessId}`);
+  assert.equal(catalog.status, 200); assert.equal(catalog.body.services[0].price, 25);
+  assert.equal(catalog.body.business.email, undefined);
+  const body = { businessId, serviceId: service.body.id, quantity: 12, request: 'Navy shirts for Friday', name: 'Guest Jordan', email: 'existing-guest@example.test', submissionKey: 'test-submission-123', total: 1, status: 'approved' };
+  assert.equal((await app.request('/public/requests', { method: 'POST', body: { ...body, website: 'bot' } })).status, 400);
+  const submitted = await app.request('/public/requests', { method: 'POST', body });
+  assert.equal(submitted.status, 201); assert.equal(submitted.body.token, undefined); assert.equal(submitted.body.quoteId, undefined);
+  assert.equal((await app.request('/public/requests', { method: 'POST', body })).status, 200);
+  assert.equal((await app.request('/public/requests', { method: 'POST', body: { ...body, quantity: 1 } })).status, 409);
+  const workspace = (await app.request('/workspace', { cookie: owner.cookie })).body;
+  assert.equal(workspace.quotes.length, 1); assert.equal(workspace.quotes[0].total, 300); assert.equal(workspace.quotes[0].status, 'pending');
+  const quoteId = workspace.quotes[0].id;
+  assert.equal((await app.request('/workspace', { cookie: existingCustomer.cookie })).body.quotes.length, 0);
+  assert.equal((await app.request(`/quotes/${quoteId}/messages`, { cookie: existingCustomer.cookie })).status, 404);
+  const ownerNotifications = (await app.request('/notifications', { cookie: owner.cookie })).body;
+  assert.equal(ownerNotifications.notifications.length, 1); assert.equal(ownerNotifications.notifications[0].readAt, null);
+  assert.equal((await app.request('/notifications', { cookie: stranger.cookie })).body.mail.length, 0);
+  const mailId = ownerNotifications.mail[0].id;
+  assert.equal((await app.request(`/mail/${mailId}/preview`, { cookie: stranger.cookie })).status, 404);
+  const token = await previewToken(app, owner, 'Confirm your email and track your request');
+  const headers = { 'X-QuoteFlow-Token': token };
+  assert.equal((await app.request('/track')).status, 401);
+  assert.equal((await app.request('/track', { headers })).body.needsConfirmation, true);
+  assert.equal((await app.request('/track/messages', { method: 'POST', headers, body: { message: 'Too early' } })).status, 403);
+  assert.equal((await app.request('/track/confirm', { method: 'POST', headers, body: {} })).status, 200);
+  assert.equal((await app.request('/track', { headers })).body.quote.total, 300);
+  assert.equal((await app.request(`/quotes/${quoteId}/messages`, { method: 'POST', cookie: owner.cookie, body: { message: 'Is artwork ready?' } })).status, 200);
+  assert.equal((await app.request('/track', { headers })).body.messages[0].body, 'Is artwork ready?');
+  assert.equal((await app.request('/track/messages', { method: 'POST', headers, body: { message: 'Yes, front logo please.' } })).status, 201);
+  assert.equal((await app.request(`/quotes/${quoteId}`, { method: 'PATCH', cookie: owner.cookie, body: { price: 30, status: 'approved' } })).status, 200);
+  assert.equal((await app.request('/track/status', { method: 'POST', headers, body: { status: 'accepted', total: 1 } })).status, 200);
+  assert.equal((await app.request('/track/status', { method: 'POST', headers, body: { status: 'accepted' } })).status, 409);
+  assert.equal((await app.request('/track', { headers })).body.quote.total, 360);
+  await app.stop(); app = await start({ database, now: () => time });
+  const persisted = (await app.request('/track', { headers })).body;
+  assert.equal(persisted.quote.status, 'accepted'); assert.equal(persisted.messages.length, 2);
+  assert.ok(persisted.notifications.some(n => n.title === 'Your quote is approved'));
+  await app.request('/track/read', { method: 'POST', headers, body: {} });
+  assert.ok((await app.request('/track', { headers })).body.notifications.every(n => n.read_at !== null));
+  time += 31 * 86400000;
+  assert.equal((await app.request('/track', { headers })).status, 401);
+});
+
+test('business email confirmation releases queued notices and recovery does not enumerate guests', async t => {
+  const app = await start(); t.after(app.stop);
+  const owner = await register(app.request, 'verify-owner@example.test', 'business');
+  await enableWidget(app, owner);
+  await app.request('/public/requests', { method: 'POST', body: { businessId: owner.body.user.id, serviceId: 'custom', quantity: 1, request: 'Custom mural', name: 'Guest', email: 'guest@example.test', submissionKey: 'verify-test' } });
+  assert.ok((await app.request('/notifications', { cookie: owner.cookie })).body.mail.some(m => m.state === 'unverified'));
+  assert.equal((await app.request('/email/verify', { method: 'POST', cookie: owner.cookie, body: {} })).status, 200);
+  const token = await previewToken(app, owner, 'Verify your QuoteFlow email');
+  assert.equal((await app.request('/email/confirm', { method: 'POST', body: { token } })).status, 200);
+  assert.equal((await app.request('/email/confirm', { method: 'POST', body: { token } })).status, 400);
+  assert.equal((await app.request('/notifications', { cookie: owner.cookie })).body.verified, true);
+  assert.ok(!(await app.request('/notifications', { cookie: owner.cookie })).body.mail.some(m => m.state === 'unverified'));
+  const actual = await app.request('/public/recover-link', { method: 'POST', body: { businessId: owner.body.user.id, email: 'guest@example.test' } });
+  const unknown = await app.request('/public/recover-link', { method: 'POST', body: { businessId: owner.body.user.id, email: 'unknown@example.test' } });
+  assert.deepEqual(actual.body, unknown.body);
+  assert.equal((await app.request('/widget-settings', { method: 'POST', cookie: owner.cookie, body: { enabled: true, origins: ['https://studio.example/path'] } })).status, 400);
+});
+
+test('mail queue retries with a stable idempotency key and does not lose requests or duplicate accepted mail', async t => {
+  let time = Date.now(); let attempts = 0; const ids = [];
+  const dir = await mkdtemp(join(tmpdir(), 'quoteflow-mail-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const database = join(dir, 'mail.sqlite');
+  const options = { database, now: () => time, mailMode: 'resend', mailTransport: async mail => { attempts++; ids.push(mail.id); if (attempts === 1) throw Error('Temporary outage'); return 'provider-123'; } };
+  let app = await start(options); t.after(() => app.stop());
+  const owner = await register(app.request, 'queue-owner@example.test', 'business'); await enableWidget(app, owner);
+  assert.equal((await app.request('/public/requests', { method: 'POST', body: { businessId: owner.body.user.id, serviceId: 'custom', quantity: 1, request: 'Mural', name: 'Guest', email: 'guest@example.test', submissionKey: 'queue-request' } })).status, 201);
+  await app.flushMail(); assert.equal(attempts, 1);
+  const state = (await app.request('/notifications', { cookie: owner.cookie })).body;
+  assert.equal(state.mail.find(m => m.subject === 'Confirm your email and track your request').state, 'queued');
+  assert.equal((await app.request('/workspace', { cookie: owner.cookie })).body.quotes.length, 1);
+  await app.stop(); app = await start(options);
+  time += 61000; await app.flushMail(); await app.flushMail();
+  assert.equal(attempts, 2); assert.equal(ids[0], ids[1]);
+  const accepted = (await app.request('/notifications', { cookie: owner.cookie })).body.mail.find(m => m.subject === 'Confirm your email and track your request');
+  assert.equal(accepted.state, 'sent'); assert.equal(accepted.attempts, 2);
+  assert.equal((await app.request(`/mail/${accepted.id}/preview`, { cookie: owner.cookie })).status, 404);
+});
+
+test('signed delivery callbacks update status; forged events cannot, and late delivery cannot hide a bounce', async t => {
+  const { Webhook } = await import('svix');
+  const secret = `whsec_${Buffer.from('a-test-secret-with-at-least-32-bytes').toString('base64')}`;
+  const app = await start({ mailMode: 'resend', mailWebhookSecret: secret, mailTransport: async () => 'provider-webhook-test' }); t.after(app.stop);
+  const owner = await register(app.request, 'webhook-owner@example.test', 'business');
+  await app.request('/email/verify', { method: 'POST', cookie: owner.cookie, body: {} }); await app.flushMail();
+  const event = { type: 'email.delivered', data: { email_id: 'provider-webhook-test' } };
+  assert.equal((await app.request('/mail/webhook', { method: 'POST', body: event })).status, 400);
+  async function postEvent(type, id) {
+    const body = { ...event, type }; const date = new Date();
+    return app.request('/mail/webhook', { method: 'POST', body, headers: { Origin: '', 'X-QuoteFlow-Request': '', 'svix-id': id, 'svix-timestamp': String(Math.floor(date.getTime()/1000)), 'svix-signature': new Webhook(secret).sign(id, date, JSON.stringify(body)) } });
+  }
+  assert.equal((await postEvent('email.delivered', 'delivered-1')).status, 200);
+  assert.equal((await app.request('/notifications', { cookie: owner.cookie })).body.mail[0].state, 'delivered');
+  assert.equal((await postEvent('email.bounced', 'bounced-1')).status, 200);
+  await postEvent('email.delivered', 'delivered-1');
+  assert.equal((await app.request('/notifications', { cookie: owner.cookie })).body.mail[0].state, 'bounced');
+  await app.request('/email/verify', { method: 'POST', cookie: owner.cookie, body: {} });
+  assert.equal((await app.request('/notifications', { cookie: owner.cookie })).body.mail[0].state, 'suppressed');
+});
+
+test('mail exhaustion is visible and public widgets stay disabled without email delivery', async t => {
+  let time = Date.now(); let attempts = 0;
+  const app = await start({ now: () => time, mailMode: 'resend', mailTransport: async () => { attempts++; throw Error('outage'); } }); t.after(app.stop);
+  const owner = await register(app.request, 'failed-email-owner@example.test', 'business');
+  await app.request('/email/verify', { method: 'POST', cookie: owner.cookie, body: {} });
+  for (let n = 0; n < 6; n++) { await app.flushMail(); time += 3600000; }
+  assert.equal(attempts, 5);
+  const mail = (await app.request('/notifications', { cookie: owner.cookie })).body.mail[0];
+  assert.equal(mail.state, 'failed'); assert.ok(mail.error);
+  const disabled = await start({ mailMode: 'disabled' }); t.after(disabled.stop);
+  const disabledOwner = await register(disabled.request, 'disabled-owner@example.test', 'business');
+  assert.equal((await disabled.request('/widget-settings', { method: 'POST', cookie: disabledOwner.cookie, body: { enabled: true, origins: [] } })).status, 400);
+});
+
+test('production requires verified business email, forbids previews and limits frame permissions', async t => {
+  let verifyMail;
+  const app = await start({ secure: true, mailMode: 'resend', mailTransport: async mail => { verifyMail = mail; return 'verify-secure-id'; } }); t.after(app.stop);
+  const owner = await register(app.request, 'secure-widget-owner@example.test', 'business');
+  const requestSettings = body => app.request('/widget-settings', { method: 'POST', cookie: owner.cookie, body });
+  assert.equal((await requestSettings({ enabled: true, origins: ['https://studio.example'] })).status, 400);
+  await app.request('/email/verify', { method: 'POST', cookie: owner.cookie, body: {} }); await app.flushMail();
+  const token = verifyMail.text.match(/#token=([a-f0-9]{64})/)[1];
+  await app.request('/email/confirm', { method: 'POST', body: { token } });
+  assert.equal((await requestSettings({ enabled: true, origins: ['http://studio.example'] })).status, 400);
+  assert.equal((await requestSettings({ enabled: true, origins: ['https://studio.example'] })).status, 200);
+  assert.equal(app.frameAncestors(owner.body.user.id), "'self' https://studio.example");
+  const mail = (await app.request('/notifications', { cookie: owner.cookie })).body.mail[0];
+  assert.equal((await app.request(`/mail/${mail.id}/preview`, { cookie: owner.cookie })).status, 404);
+  await requestSettings({ enabled: false, origins: [] });
+  assert.equal(app.frameAncestors(owner.body.user.id), "'none'");
+  assert.equal((await app.request(`/public/businesses/${owner.body.user.id}`)).status, 404);
+});
+
+test('payment API enforces customer ownership, accepted pricing, CSRF, and business receipts', async t => {
+  const config = { businessId: 'configured-after-registration', merchantId: 'MERCHANT123' };
+  let payload, paid = false, captures = 0;
+  const transport = async (path, options = {}) => {
+    if (path === '/v2/checkout/orders') { payload = options.body; return { id: 'ORDER123456', links: [{ rel: 'payer-action', href: 'https://www.sandbox.paypal.com/checkoutnow?token=ORDER123456' }] }; }
+    if (path.endsWith('/capture')) { captures++; paid = true; return {}; }
+    const order = { ...structuredClone(payload), id: 'ORDER123456', status: paid ? 'COMPLETED' : 'APPROVED' };
+    if (paid) order.purchase_units[0].payments = { captures: [{ id: 'CAPTURE12345', status: 'COMPLETED', amount: { currency_code: 'USD', value: '60.00' }, final_capture: true }] };
+    return order;
+  };
+  const app = await start({ paypalConfig: config, paypalTransport: transport }); t.after(app.stop);
+  const owner = await register(app.request, 'pay-owner@example.test', 'business'); config.businessId = owner.body.user.id;
+  const buyer = await register(app.request, 'pay-buyer@example.test');
+  const stranger = await register(app.request, 'pay-stranger@example.test');
+  const result = await app.request('/quotes', { method: 'POST', cookie: buyer.cookie, body: { businessId: config.businessId, serviceId: 'custom', quantity: 2, request: 'Demo' } });
+  const quotePath = `/quotes/${result.body.id}`, path = `${quotePath}/payment`;
+  const post = (cookie, action, extra = {}) => app.request(path, { method: 'POST', cookie, body: { action, total: 0.01 }, ...extra });
+  assert.equal((await post(buyer.cookie, 'create')).status, 409);
+  await app.request(quotePath, { method: 'PATCH', cookie: owner.cookie, body: { status: 'approved', price: 30 } });
+  await app.request(quotePath, { method: 'PATCH', cookie: buyer.cookie, body: { status: 'accepted' } });
+  assert.equal((await post('', 'create')).status, 401);
+  assert.equal((await post(stranger.cookie, 'create')).status, 404);
+  assert.equal((await post(owner.cookie, 'create')).status, 403);
+  assert.equal((await post(buyer.cookie, 'create', { headers: { Origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await post(buyer.cookie, 'create')).status, 200);
+  assert.equal(payload.purchase_units[0].amount.value, '60.00');
+  assert.equal((await app.request(path, { cookie: owner.cookie })).body.approvalUrl, null);
+  assert.equal((await post(buyer.cookie, 'capture')).body.state, 'paid');
+  assert.equal((await post(buyer.cookie, 'capture')).body.state, 'paid'); assert.equal(captures, 1);
+  assert.equal((await app.request(path, { cookie: owner.cookie })).body.captureId, 'CAPTURE12345');
+  for (const user of [owner, buyer]) assert.equal((await app.request('/notifications', { cookie: user.cookie })).body.notifications.filter(n => n.title.startsWith('Sandbox payment confirmed')).length, 1);
+});
+
+test('private-link payment requires a valid verified token and stays unavailable without configuration', async t => {
+  const app = await start(); t.after(app.stop);
+  const owner = await register(app.request, 'pay-guest-owner@example.test', 'business'); await enableWidget(app, owner);
+  await app.request('/public/requests', { method: 'POST', body: { businessId: owner.body.user.id, serviceId: 'custom', quantity: 1, request: 'Demo', name: 'Guest', email: 'guest@example.test', submissionKey: 'payment-guest' } });
+  const token = await previewToken(app, owner, 'Confirm your email and track your request');
+  const headers = { 'X-QuoteFlow-Token': token };
+  assert.equal((await app.request('/track/payment')).status, 401);
+  assert.equal((await app.request('/track/payment', { headers })).status, 403);
+  await app.request('/track/confirm', { method: 'POST', headers, body: {} });
+  assert.equal((await app.request('/track/payment', { headers })).body.available, false);
+  assert.equal((await app.request('/track/payment', { method: 'POST', headers, body: { action: 'create' } })).status, 503);
+});
+
+test('verified widget customer completes sandbox checkout and owner sees the receipt', async t => {
+  const config = { businessId: 'demo', merchantId: 'MERCHANT123' }; let payload, paid = false;
+  const app = await start({ paypalConfig: config, paypalTransport: async (path, options = {}) => {
+    if (path === '/v2/checkout/orders') { payload = options.body; return { id: 'GUESTORDER123', links: [{ rel: 'payer-action', href: 'https://www.sandbox.paypal.com/checkoutnow?token=GUESTORDER123' }] }; }
+    if (path.endsWith('/capture')) { paid = true; return {}; }
+    const order = { ...structuredClone(payload), id: 'GUESTORDER123', status: paid ? 'COMPLETED' : 'APPROVED' };
+    if (paid) order.purchase_units[0].payments = { captures: [{ id: 'GUESTCAPTURE123', status: 'COMPLETED', amount: { currency_code: 'USD', value: '300.00' }, final_capture: true }] };
+    return order;
+  } }); t.after(app.stop);
+  const owner = await register(app.request, 'guest-pay-owner@example.test', 'business'); config.businessId = owner.body.user.id; await enableWidget(app, owner);
+  await app.request('/public/requests', { method: 'POST', body: { businessId: config.businessId, serviceId: 'custom', quantity: 12, request: 'Fictional shirt order', name: 'Demo', email: 'demo@example.test', submissionKey: 'guest-pay-complete' } });
+  const headers = { 'X-QuoteFlow-Token': await previewToken(app, owner, 'Confirm your email and track your request') };
+  await app.request('/track/confirm', { method: 'POST', headers, body: {} });
+  const id = (await app.request('/track', { headers })).body.quote.id;
+  await app.request(`/quotes/${id}`, { method: 'PATCH', cookie: owner.cookie, body: { status: 'approved', price: 25 } });
+  await app.request('/track/status', { method: 'POST', headers, body: { status: 'accepted' } });
+  assert.equal((await app.request('/track/payment', { method: 'POST', headers, body: { action: 'create', amount: 1 } })).status, 200);
+  assert.equal((await app.request('/track/payment', { method: 'POST', headers, body: { action: 'capture', orderId: 'ATTACKER' } })).body.state, 'paid');
+  assert.equal((await app.request(`/quotes/${id}/payment`, { cookie: owner.cookie })).body.captureId, 'GUESTCAPTURE123');
+  assert.equal((await app.request('/track/payment', { headers })).body.amount, 300);
+  assert.ok((await app.request('/track', { headers })).body.notifications.some(n => n.title.startsWith('Sandbox payment confirmed')));
 });

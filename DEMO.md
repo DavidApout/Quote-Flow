@@ -1,4 +1,8 @@
-# Today's working MVP — November 1, 2026
+# QuoteFlow demo progress
+
+**Latest build:** see [WIDGET_GUIDE.md](WIDGET_GUIDE.md) for the guest website widget, private links, and notification workflow.
+
+## Earlier MVP — November 1, 2026
 
 ## Open it
 
@@ -79,12 +83,13 @@ in `data/quoteflow.sqlite`. Keep that folder if you want to keep the demo histor
    reply drafts are saved. Live provider testing requires approval to send test
    data; automated tests use mocked provider responses. Manual approval works
    even if AI is unavailable.
-2. **PayPal:** no checkout, payment capture, refunds, or verified payment webhook.
-   Accepted quote value is not paid revenue. Next: sandbox create/capture flow
-   on the server, with verified and idempotent payment updates.
-3. **Customer entry:** `/request?business=...` is an account-based request-page
-   foundation. It is not an anonymous form or cross-site embedded widget.
-   Production security headers currently block iframe embedding.
+2. **PayPal:** sandbox create/capture and persisted receipts are implemented.
+   Configure credentials and run the first real sandbox transaction using
+   [PAYPAL_DEMO.md](PAYPAL_DEMO.md). Refunds and PayPal webhooks remain missing.
+   Accepted quote value is not paid revenue.
+3. **Customer entry:** account-based requests and a no-account website widget
+   are available. The widget uses allowlisted iframe origins and private email
+   tracking links; see [WIDGET_GUIDE.md](WIDGET_GUIDE.md).
 4. **Hosting:** local only; links do not work from another device. Existing
    role/ownership checks are tested, but this is not production-certified
    multi-business hosting. Before public use: HTTPS, persistent storage/backups,
@@ -92,8 +97,8 @@ in `data/quoteflow.sqlite`. Keep that folder if you want to keep the demo histor
    and a security review. Use fresh accounts, not this demo database.
 5. **Editing:** owners edit the final unit price before approval. Changing quantity,
    line items, or already-approved quotes requires a future revision workflow.
-6. **Notifications:** inbox refresh is manual, on focus, or every 15 seconds;
-   there is no email or real-time push notification.
+6. **Notifications:** in-app notices and a durable email queue are implemented.
+   Local email preview sends no email. Live email needs verified sender setup.
 7. **Development:** another local Vite app is using the default live-update socket
    port. Normal pages/API work; reload after source changes if automatic updates
    do not appear. This does not affect a production build.

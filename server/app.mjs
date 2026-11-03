@@ -1,3 +1,5 @@
+import { createPayments } from './paypal.mjs';
+import { createEngagement } from './engagement.mjs';
 import { reviewRequest } from './ai.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from 'node:crypto';
@@ -38,7 +40,7 @@ async function bodyOf(req) {
   catch { fail(400, 'Invalid request data.'); }
 }
 
-export async function createApi({ database = ':memory:', origin = 'http://127.0.0.1:5173', secure = false, now = Date.now, aiReview = reviewRequest } = {}) {
+export async function createApi({ database = ':memory:', origin = 'http://127.0.0.1:5173', secure = false, now = Date.now, aiReview = reviewRequest, mailMode, mailKey, mailFrom, mailTransport, mailWebhookSecret, paypalConfig, paypalTransport } = {}) {
   const db = new DatabaseSync(database);
   db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
@@ -87,6 +89,8 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
     db.exec('BEGIN IMMEDIATE');
     try { const value = work(); db.exec('COMMIT'); return value; } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
+  const engagement = createEngagement({ db, origin, secure, now, limit, transaction, bodyOf, send, dummyHash, mailMode, mailKey, mailFrom, mailTransport, mailWebhookSecret });
+  const payments = createPayments({ db, origin, now, transaction, quoteEvent: engagement.quoteEvent, config: paypalConfig, transport: paypalTransport });
   async function handle(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -95,10 +99,21 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       const path = url.pathname;
       const method = req.method;
       if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) fail(405, 'Method not allowed.');
+      if (path === '/api/mail/webhook') { await engagement.webhook(req, res); return; }
       if (method !== 'GET') {
         // Requiring JSON plus a custom header blocks cross-site forms; no CORS is enabled.
         if (req.headers['x-quoteflow-request'] !== '1' || req.headers.origin !== origin) fail(403, 'Reload this page before trying again.');
       }
+      if (path === '/api/track/payment' && ['GET', 'POST'].includes(method)) {
+        const guest = engagement.authorizeGuest(req);
+        const quote = db.prepare('SELECT * FROM quotes WHERE id=?').get(guest.quote_id);
+        if (method === 'GET') return send(res, 200, payments.info(quote));
+        const body = await bodyOf(req);
+        if (!['create', 'capture', 'check'].includes(body.action)) fail(400, 'Choose a payment action.');
+        limit(`payment:${quote.id}`, 30);
+        return send(res, 200, await payments.act(quote, body.action));
+      }
+      if (await engagement.publicRoutes(req, res, path, method)) return;
       if (path === '/api/auth/session' && method === 'GET') { const user = session(req); return send(res, 200, { user: user ? publicUser(user) : null }); }
       if (['/api/auth/register', '/api/auth/login', '/api/auth/recover'].includes(path) && method === 'POST') {
         limit(`ip:${req.socket.remoteAddress}`, 40);
@@ -143,6 +158,19 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       const user = session(req);
       if (!user) fail(401, 'Please sign in again.');
       if (req.headers['x-quoteflow-user'] && req.headers['x-quoteflow-user'] !== user.id) fail(401, 'Your account changed. Please sign in again.');
+      if (await engagement.accountRoutes(req, res, path, method, user)) return;
+      const paymentMatch = path.match(/^\/api\/quotes\/([\w-]+)\/payment$/);
+      if (paymentMatch && ['GET', 'POST'].includes(method)) {
+        const quote = db.prepare('SELECT * FROM quotes WHERE id=? AND (customer_id=? OR business_id=?)').get(paymentMatch[1], user.id, user.id);
+        if (!quote) fail(404, 'Quote not found.');
+        if (method === 'GET') return send(res, 200, payments.info(quote, user.id === quote.customer_id));
+        const body = await bodyOf(req);
+        if (!['create', 'capture', 'check'].includes(body.action)) fail(400, 'Choose a payment action.');
+        if (user.id !== quote.customer_id && body.action !== 'check') fail(403, 'Only the customer can start or complete checkout.');
+        limit(`payment:${quote.id}`, 30);
+        return send(res, 200, await payments.act(quote, body.action));
+      }
+
       if (path === '/api/auth/logout' && method === 'POST') {
         db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(digest(tokenOf(req)));
         res.setHeader('Set-Cookie', cookie('', 0));
@@ -211,7 +239,11 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
           const message = text(body.message, 3000, 'message');
           if (db.prepare('SELECT COUNT(*) AS count FROM quote_messages WHERE quote_id = ?').get(quote.id).count >= 100) fail(409, 'This conversation has reached its 100-message limit.');
           limit(`message:${user.id}`, 30);
-          db.prepare('INSERT INTO quote_messages VALUES (?, ?, ?, ?, ?)').run(randomUUID(), quote.id, user.id, message, now());
+          transaction(() => {
+            const messageId = randomUUID();
+            db.prepare('INSERT INTO quote_messages VALUES (?, ?, ?, ?, ?)').run(messageId, quote.id, user.id, message, now());
+            engagement.quoteEvent(quote.id, `message:${messageId}`, user.role === 'business' ? 'The business sent you a message' : 'A customer replied to your request', user.role === 'business' ? 'customer' : 'business');
+          });
         }
         const messages = db.prepare(`SELECT m.id, m.body, m.created, u.role AS role, u.name AS senderName FROM quote_messages m JOIN users u ON u.id = m.sender_id WHERE m.quote_id = ? ORDER BY m.created, m.rowid`).all(quote.id);
         return send(res, 200, { messages });
@@ -259,7 +291,11 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         if (custom && !body.request.trim()) fail(400, 'Describe your custom request.');
         const id = randomUUID();
         // Prices and ownership always come from the server, never client totals or roles.
-        db.prepare('INSERT INTO quotes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, businessId, user.id, custom ? 'Custom request' : service.name, body.request.trim(), body.quantity, service?.cents ?? null, 'pending', now());
+        transaction(() => {
+          db.prepare('INSERT INTO quotes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, businessId, user.id, custom ? 'Custom request' : service.name, body.request.trim(), body.quantity, service?.cents ?? null, 'pending', now());
+          engagement.quoteEvent(id, `new:${id}`, 'New quote request', 'business');
+          engagement.quoteEvent(id, `received:${id}`, 'Your request was received', 'customer');
+        });
         return send(res, 201, { id });
       }
       const quoteMatch = path.match(/^\/api\/quotes\/([\w-]+)$/);
@@ -270,10 +306,17 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         if (user.role === 'business') {
           if (quote.status !== 'pending' || !['approved', 'rejected'].includes(body.status)) fail(409, 'Only pending requests can be approved or rejected.');
           const cents = body.status === 'approved' ? money(body.price) : quote.cents;
-          db.prepare('UPDATE quotes SET status = ?, cents = ? WHERE id = ?').run(body.status, cents, quote.id);
+          transaction(() => {
+            db.prepare('UPDATE quotes SET status = ?, cents = ? WHERE id = ?').run(body.status, cents, quote.id);
+            engagement.quoteEvent(quote.id, `status:${quote.id}:${body.status}`, `Your quote is ${body.status}`, 'customer');
+          });
         } else {
           if (quote.status !== 'approved' || !['accepted', 'declined'].includes(body.status)) fail(409, 'Only approved quotes can be accepted or declined.');
-          db.prepare('UPDATE quotes SET status = ? WHERE id = ?').run(body.status, quote.id);
+          transaction(() => {
+            db.prepare('UPDATE quotes SET status = ? WHERE id = ?').run(body.status, quote.id);
+            engagement.quoteEvent(quote.id, `status:${quote.id}:${body.status}`, `Customer ${body.status} the quote`, 'business');
+            engagement.quoteEvent(quote.id, `confirmation:${quote.id}:${body.status}`, `Your quote is ${body.status}`, 'customer');
+          });
         }
         return send(res, 200, { ok: true });
       }
@@ -286,5 +329,5 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       else res.end();
     }
   }
-  return { handle, close: () => db.close() };
+  return { handle, flushMail: engagement.flushMail, frameAncestors: engagement.frameAncestors, close: () => db.close() };
 }

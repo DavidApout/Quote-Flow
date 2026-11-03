@@ -142,3 +142,32 @@ h1 { font-size: 2rem; }
 .message-list li.message-own { margin-left: 16px; margin-right: 0; border-color: var(--accent); }
 .message-author { color: var(--muted); font-size: .72rem; }
 .message-author time { display: block; }
+.guest-shell { max-width: 760px; padding: 28px 20px; }
+.guest-shell h1 { overflow-wrap: anywhere; }
+.guest-shell .view-nav { width: 100%; margin-top: 8px; }
+.guest-shell .view-nav button { flex: 1; }
+.honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.recovery-link { margin-top: 22px; }
+.conversation-title { margin-top: 28px; }
+.notification-center { margin: 18px 0; }
+.notification-center > .panel { margin-top: 14px; }
+.notification-list { list-style: none; padding: 0; }
+.notification-list li { display: flex; align-items: center; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.notification-list li > div { flex: 1; min-width: 0; }
+.unread-dot { width: 9px; height: 9px; flex-shrink: 0; border-radius: 50%; background: var(--accent); }
+.mail-preview { margin-top: 20px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; }
+.mail-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .85rem; }
+.check-label { display: flex; align-items: center; gap: 12px; }
+.check-label input { width: auto; }
+.panel > h3 { margin-top: 20px; }
+.panel a { color: var(--accent); overflow-wrap: anywhere; }
+@media (max-width: 600px) { .notification-list li { flex-wrap: wrap; } .view-nav { flex-wrap: wrap; } .guest-shell { padding: 18px 12px; } }
+
+.payment-panel { margin-top: 1rem; padding: 1.25rem; border: 1px solid var(--line); border-radius: 16px; background: var(--field); }
+.payment-panel h3 { margin: .4rem 0; }
+.payment-panel button { margin: .4rem .5rem .4rem 0; }
+.payment-total { font-size: 1.5rem; font-weight: 750; margin: .75rem 0; }
+.payment-steps { padding-left: 1.4rem; line-height: 1.8; }
+.payment-link { color: inherit; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
+.payment-panel .muted { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .payment-panel button { width: 100%; margin-right: 0; } }

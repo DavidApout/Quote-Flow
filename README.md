@@ -1,5 +1,8 @@
 # QuoteFlow AI
 
+**New: website widget, guest tracking links, unread notifications, and queued email.**
+See [WIDGET_GUIDE.md](WIDGET_GUIDE.md) for setup, local previews, tests, and deployment limits.
+
 React/Vite frontend with a Node.js account and quote backend, using SQLite. Requires Node 24 or later. No external account service or database subscription is needed for local development.
 
 ## Start locally
@@ -28,7 +31,7 @@ The workspace refreshes every 15 seconds, when focused, or using the Refresh but
 - Mutations require the configured origin and a custom request header. Cross-origin access is not enabled. Rate limiting applies to authentication attempts; hashing concurrency is bounded.
 - Data lives in `data/quoteflow.sqlite` by default and persists across restarts. Database files are excluded from Git. Back up the database using SQLite's backup mechanism or stop the server before copying its database files.
 - The previous localStorage demo values are left intact. Services can be imported explicitly into a business account. Old unowned demo quotes are not assigned to real accounts automatically. New quotes and services are saved in the database; only the theme remains browser-local.
-- Business AI review has a server integration (see below); live validation requires an API key. PayPal payments are not connected.
+- Business AI review has a server integration (see below); live validation requires an API key. PayPal Sandbox checkout is implemented; setup and unverified live-provider limitations are in [PAYPAL_DEMO.md](PAYPAL_DEMO.md).
 
 ## Tests
 
@@ -96,7 +99,7 @@ A live provider test requires explicit approval to send the chosen test data.
 
 Implementation reference: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
-Latest local verification: 22 tests, lint, and build passed. Browser saved-review
+See WIDGET_GUIDE.md for the latest widget/notification verification. Earlier milestone: 22 tests, lint, and build passed. Browser saved-review
 and editable-reply behavior was checked using an isolated labeled fixture. Live
 fictional-data testing was blocked by provider credentials/access rejection;
 check the private server key/model access before expecting live reviews to work.
@@ -131,8 +134,8 @@ and sending to 30 messages per 15 minutes per account (per process). Messages
 never change the approved price or status. A scope change needs owner review.
 
 Open conversations refresh every 15 seconds, on window focus, or via Refresh
-messages. There are no email notifications, unread badges, attachments, or message
-editing/deletion yet. Conversation text is not automatically included in a saved
+messages. Email notifications and unread updates are now available through the notification
+center and private guest pages; attachments and message editing/deletion are not. Conversation text is not automatically included in a saved
 AI review; the business should read it before approving. The existing AI review is
 a snapshot, not an ongoing autonomous agent.
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { buildRequestSummary, detailQuestion } from '../lib/customerGuide';
 
-export default function CustomerAssistant({ services, businessId, accountId, onUse, onSessionExpired }) {
+export default function CustomerAssistant({ services, businessId, accountId, onUse, onSessionExpired, allowAI = true }) {
   const [step, setStep] = useState(0);
   const [description, setDescription] = useState('');
   const [serviceId, setServiceId] = useState('custom');
@@ -35,7 +35,7 @@ export default function CustomerAssistant({ services, businessId, accountId, onU
   }
   return <section className="customer-assistant" aria-label="Guided request assistant">
     <p className="eyebrow">LET’S SHAPE YOUR REQUEST</p><h3>Tell us what you have in mind.</h3>
-    <p className="muted">A guided conversation, with an optional AI follow-up. Nothing is submitted until you approve the preview.</p>
+    <p className="muted">A guided conversation{allowAI ? ', with an optional AI follow-up.' : '.'} Nothing is submitted until you approve the preview.</p>
     <ol className="guide-progress" aria-label="Request progress">{['Idea', 'Service', 'Timing', 'Details', 'Review'].map((label, index) => <li key={label} aria-current={step === index ? 'step' : undefined} className={step === index ? 'active' : ''}>{index + 1}. {label}</li>)}</ol>
     {step > 0 && <div className="chat-answer"><span className="eyebrow">YOUR IDEA</span><p>{description}</p></div>}
     {step < 4 ? <form onSubmit={advance}>
@@ -48,7 +48,7 @@ export default function CustomerAssistant({ services, businessId, accountId, onU
       <h4>Your request, ready to review</h4><p className="muted">{service?.name || 'Custom request'} · {quantity} units · {service ? `$${(Math.round(service.price * 100) * Number(quantity) / 100).toFixed(2)} estimated from catalog` : 'The business will confirm pricing'}</p>
       <label htmlFor="guide-summary">Edit your request summary</label><textarea id="guide-summary" maxLength={2000} value={summary} onChange={e => setSummary(e.target.value)} />
       <p className="muted">{summary.length}/2,000 characters · Taxes and fees excluded. Business approval required.</p>
-      <details className="guide-ai"><summary>Want help spotting anything missing?</summary><p className="muted">Optional: send this summary, quantity, and service catalog names to OpenAI for one follow-up question. The guided steps above work without AI.</p><button type="button" className="secondary" disabled={aiBusy || !summary.trim()} onClick={personalize}>{aiBusy ? 'Checking details…' : 'Get an AI follow-up'}</button>{followUp && <><label htmlFor="guide-answer">{followUp}</label><textarea id="guide-answer" value={answer} maxLength={500} onChange={e => setAnswer(e.target.value)} /><button type="button" className="secondary" disabled={!answer.trim()} onClick={() => { const next = `${summary}\n\nFollow-up — ${followUp}\n${answer.trim()}`; if (next.length > 2000) { setError('Your summary is too long. Shorten it before adding this answer.'); return; } setSummary(next); setFollowUp(''); setAnswer(''); setNotice('Answer added. Review your summary before continuing.'); }}>Add answer to summary</button></>}</details>
+      {allowAI && <details className="guide-ai"><summary>Want help spotting anything missing?</summary><p className="muted">Optional: send this summary, quantity, and service catalog names to OpenAI for one follow-up question. The guided steps above work without AI.</p><button type="button" className="secondary" disabled={aiBusy || !summary.trim()} onClick={personalize}>{aiBusy ? 'Checking details…' : 'Get an AI follow-up'}</button>{followUp && <><label htmlFor="guide-answer">{followUp}</label><textarea id="guide-answer" value={answer} maxLength={500} onChange={e => setAnswer(e.target.value)} /><button type="button" className="secondary" disabled={!answer.trim()} onClick={() => { const next = `${summary}\n\nFollow-up — ${followUp}\n${answer.trim()}`; if (next.length > 2000) { setError('Your summary is too long. Shorten it before adding this answer.'); return; } setSummary(next); setFollowUp(''); setAnswer(''); setNotice('Answer added. Review your summary before continuing.'); }}>Add answer to summary</button></>}</details>}
       <div className="actions"><button type="button" className="secondary" onClick={() => { setStep(0); setNotice(''); }}>Edit answers</button><button type="button" disabled={aiBusy || !summary.trim()} onClick={() => onUse({ serviceId: service && serviceId !== 'custom' ? serviceId : 'custom', quantity: Number(quantity), request: summary.trim() })}>Use this request</button></div>
       <p className="muted">Next: preview and submit. This draft is not saved until you submit.</p>
     </div>}
