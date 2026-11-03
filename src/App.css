@@ -171,3 +171,20 @@ h1 { font-size: 2rem; }
 .payment-link { color: inherit; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
 .payment-panel .muted { overflow-wrap: anywhere; }
 @media (max-width: 600px) { .payment-panel button { width: 100%; margin-right: 0; } }
+
+/* Request milestones reflect persisted quote and sandbox capture state. */
+.status.paid { background: #dff8ec; color: #15583e; border: 1px solid #9edbbb; }
+.request-progress { margin: 24px 0; }
+.request-progress ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; padding: 0; gap: 8px; }
+.request-progress li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; font-size: .72rem; color: var(--muted); }
+.request-progress li:not(:last-child)::after { content: ''; position: absolute; top: 15px; left: calc(50% + 20px); width: calc(100% - 32px); height: 2px; background: var(--line); }
+.step-dot { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; background: var(--field); font-weight: 700; }
+.step-done .step-dot { background: #dff8ec; border-color: #9edbbb; color: #15583e; }
+.request-progress .step-done { color: var(--text); font-weight: 600; }
+.payment-confirmed { border-color: #58ac87; background: linear-gradient(140deg, #5bc99812, transparent 65%), var(--field); }
+.payment-success-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: #dff8ec; color: #15583e; font-size: 1.5rem; margin: 16px 0; }
+.payment-next { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); font-size: .85rem; }
+.payment-next p { margin: 8px 0; }
+.payment-next small { color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 380px) { .request-progress ol { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; } .request-progress li:nth-child(2)::after { display: none; } }

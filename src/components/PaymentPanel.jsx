@@ -29,10 +29,10 @@ export default function PaymentPanel({ quoteId, accountId, token, business = fal
     } catch (error) { setError(error.message); }
     finally { pending.current = false; setBusy(false); }
   }
-  return <section className="payment-panel" aria-label="Sandbox payment">
+  return <section className={`payment-panel ${payment?.state === 'paid' ? 'payment-confirmed' : ''}`} aria-label="Sandbox payment">
     <p className="eyebrow">PAYPAL SANDBOX · TEST MONEY ONLY</p>
     {error && <p className="error" role="alert">{error}</p>}
-    {!payment ? <p role="status">Loading payment details…</p> : payment.state === 'paid' ? <><h3>Sandbox payment confirmed</h3><p className="payment-total">${payment.amount.toFixed(2)} USD</p><p className="muted">Test receipt: {payment.captureId}<br />{new Date(payment.paidAt).toLocaleString()} · No real money collected.</p></> : <>
+    {!payment ? <p role="status">Loading payment details…</p> : payment.state === 'paid' ? <><div className="payment-success-icon" aria-hidden="true">✓</div><h3>Sandbox payment confirmed</h3><p className="payment-total">${payment.amount.toFixed(2)} USD</p><p className="muted">Test receipt: {payment.captureId}<br />{new Date(payment.paidAt).toLocaleString()} · No real money collected.</p><div className="payment-next"><strong>What happens next</strong><p>{business ? 'Use Messages & questions to confirm timing and pickup details with the customer.' : 'Use Messages & questions to agree on timing and pickup details with the business.'}</p><small>This is a demo payment, not confirmation of real fulfillment.</small></div></> : <>
       <h3>{business ? 'Awaiting sandbox payment' : 'Complete your sandbox checkout'}</h3>
       <p className="muted">{payment.available ? 'This demo uses a PayPal Sandbox buyer account. No real money changes hands.' : 'Checkout setup is pending for this business. Your accepted quote is saved; no payment has been collected.'}</p>
       {payment.available && <>

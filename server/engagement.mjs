@@ -128,7 +128,7 @@ export function createEngagement({ db, origin, secure, now, limit, transaction, 
         if (path === '/api/track' && method === 'GET') return send(res, 200, { needsConfirmation: true, mailMode }), true;
         fail(403, 'Confirm your email using this private link first.');
       }
-      const quote = db.prepare('SELECT q.id,q.name,q.request,q.quantity,q.cents/100.0 AS price,q.cents*q.quantity/100.0 AS total,q.status,b.business_name AS businessName FROM quotes q JOIN users b ON b.id=q.business_id WHERE q.id=?').get(guest.quote_id);
+      const quote = db.prepare('SELECT q.id,q.name,q.request,q.quantity,q.cents/100.0 AS price,q.cents*q.quantity/100.0 AS total,q.status,EXISTS(SELECT 1 FROM sandbox_payments p WHERE p.quote_id=q.id AND p.state=\'paid\') AS sandboxPaid,b.business_name AS businessName FROM quotes q JOIN users b ON b.id=q.business_id WHERE q.id=?').get(guest.quote_id);
       if (path === '/api/track' && method === 'GET') return send(res, 200, { quote, messages: listMessages(quote.id), notifications: db.prepare('SELECT id,title,read_at FROM notifications WHERE user_id=? ORDER BY created DESC').all(guest.user_id), mailMode }), true;
       if (path === '/api/track/read' && method === 'POST') {
         db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(now(), guest.user_id);
