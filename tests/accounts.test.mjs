@@ -492,3 +492,38 @@ test('verified widget customer completes sandbox checkout and owner sees the rec
   assert.equal((await app.request('/track/payment', { headers })).body.amount, 300);
   assert.ok((await app.request('/track', { headers })).body.notifications.some(n => n.title.startsWith('Sandbox payment confirmed')));
 });
+
+test('profiles protect customer privacy and ratings require participation and acceptance', async t => {
+  const app = await start(); t.after(app.stop);
+  const owner = await register(app.request, 'profile-owner@example.test', 'business');
+  const buyer = await register(app.request, 'profile-buyer@example.test');
+  const stranger = await register(app.request, 'profile-stranger@example.test');
+  const id = buyer.body.user.id;
+  const save = (body, cookie = buyer.cookie) => app.request('/profile', {method:'PATCH',cookie,body});
+  assert.equal((await save({bio:'About me',avatar:'',banner:''})).status,200);
+  assert.equal((await save({bio:'No',avatar:'https://tracker.example/image.jpg',banner:''})).status,400);
+  assert.equal((await save({bio:'No',avatar:'data:image/svg+xml;base64,AAAA',banner:''})).status,400);
+  assert.equal((await save({bio:'No',avatar:'data:image/jpeg;base64,AAAA',banner:''})).status,400);
+  assert.equal((await save({bio:'x'.repeat(301),avatar:'',banner:''})).status,400);
+  assert.equal((await app.request(`/profiles/${id}`,{cookie:stranger.cookie})).status,404);
+  assert.equal((await app.request(`/profiles/${id}`,{cookie:owner.cookie})).status,404);
+  assert.equal((await app.request(`/profiles/${id}`,{cookie:buyer.cookie})).body.bio,'About me');
+  const quote = await app.request('/quotes',{method:'POST',cookie:buyer.cookie,body:{businessId:owner.body.user.id,serviceId:'custom',quantity:1,request:'Demo'}});
+  const path = `/quotes/${quote.body.id}`;
+  const rate = (stars,cookie=buyer.cookie) => app.request(path+'/rating',{method:'POST',cookie,body:{stars,targetId:stranger.body.user.id}});
+  assert.equal((await rate(5)).status,409);
+  assert.equal((await rate(5,stranger.cookie)).status,404);
+  const visible=await app.request(`/profiles/${id}`,{cookie:owner.cookie});
+  assert.equal(visible.status,200); assert.equal(visible.body.email,undefined);
+  await app.request(path,{method:'PATCH',cookie:owner.cookie,body:{status:'approved',price:25}});
+  await app.request(path,{method:'PATCH',cookie:buyer.cookie,body:{status:'accepted'}});
+  assert.equal((await rate(6)).status,400);
+  assert.equal((await rate(4.5)).status,400);
+  assert.equal((await rate(5)).status,200);
+  await rate(4);
+  const profile=(await app.request(`/profiles/${owner.body.user.id}`,{cookie:buyer.cookie})).body;
+  assert.deepEqual(profile.rating,{average:4,count:1});
+  assert.equal((await rate(3,owner.cookie)).status,200);
+  assert.deepEqual((await app.request(`/profiles/${id}`,{cookie:buyer.cookie})).body.rating,{average:3,count:1});
+  assert.equal((await app.request(`/profiles/${stranger.body.user.id}`,{cookie:stranger.cookie})).body.rating.count,0);
+});

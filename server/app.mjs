@@ -29,12 +29,12 @@ async function checkPassword(password, saved) {
   const result = await hashPassword(password, saved.split(':')[0]);
   return timingSafeEqual(Buffer.from(result), Buffer.from(saved));
 }
-async function bodyOf(req) {
+async function bodyOf(req, maxBytes = 32768) {
   if (!req.headers['content-type']?.startsWith('application/json')) fail(415, 'Send JSON data.');
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (Buffer.byteLength(raw) > 32768) fail(413, 'Request is too large.');
+    if (Buffer.byteLength(raw) > maxBytes) fail(413, 'Request is too large.');
   }
   try { const value = JSON.parse(raw); if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error(); return value; }
   catch { fail(400, 'Invalid request data.'); }
@@ -56,6 +56,8 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
     CREATE TABLE IF NOT EXISTS quote_reviews (quote_id TEXT PRIMARY KEY REFERENCES quotes(id), review TEXT NOT NULL, created INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS quotes_customer ON quotes(customer_id);
     CREATE INDEX IF NOT EXISTS quotes_business ON quotes(business_id);`);
+  db.exec(`CREATE TABLE IF NOT EXISTS profiles (user_id TEXT PRIMARY KEY REFERENCES users(id), bio TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '', banner TEXT NOT NULL DEFAULT '');
+    CREATE TABLE IF NOT EXISTS ratings (quote_id TEXT NOT NULL REFERENCES quotes(id), author_id TEXT NOT NULL REFERENCES users(id), target_id TEXT NOT NULL REFERENCES users(id), stars INTEGER NOT NULL CHECK(stars BETWEEN 1 AND 5), PRIMARY KEY(quote_id,author_id));`);
   const dummyHash = await hashPassword(randomBytes(24).toString('hex'));
   const attempts = new Map();
   const reviewing = new Set();
@@ -159,6 +161,43 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       if (!user) fail(401, 'Please sign in again.');
       if (req.headers['x-quoteflow-user'] && req.headers['x-quoteflow-user'] !== user.id) fail(401, 'Your account changed. Please sign in again.');
       if (await engagement.accountRoutes(req, res, path, method, user)) return;
+      const profileMatch = path.match(/^\/api\/profiles\/([\w-]+)$/);
+      if (profileMatch && method === 'GET') {
+        const target = db.prepare('SELECT id,name,role,business_name FROM users WHERE id=?').get(profileMatch[1]);
+        if (!target) fail(404, 'Profile not found.');
+        if (target.role !== 'business' && target.id !== user.id && !db.prepare('SELECT id FROM quotes WHERE business_id=? AND customer_id=?').get(user.id,target.id)) fail(404, 'Profile not found.');
+        const profile = db.prepare('SELECT bio,avatar,banner FROM profiles WHERE user_id=?').get(target.id) || { bio:'',avatar:'',banner:'' };
+        const rating = db.prepare('SELECT AVG(stars) AS average,COUNT(*) AS count FROM ratings WHERE target_id=?').get(target.id);
+        return send(res,200,{ id:target.id,name:target.role === 'business' ? target.business_name : target.name,role:target.role,...profile,rating });
+      }
+      if (path === '/api/profile' && method === 'PATCH') {
+        const body = await bodyOf(req, 1100000);
+        if (typeof body.bio !== 'string' || body.bio.length > 300) fail(400,'Keep your bio within 300 characters.');
+        const picture = value => {
+          if (value === '') return '';
+          if (typeof value !== 'string' || value.length > 500000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) fail(400,'Choose a JPEG image under 350 KB after resizing.');
+          const bytes = Buffer.from(value.split(',')[1],'base64');
+          if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) fail(400,'Invalid image.');
+          return value;
+        };
+        const avatar = picture(body.avatar), banner = picture(body.banner);
+        db.prepare('INSERT INTO profiles VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET bio=excluded.bio,avatar=excluded.avatar,banner=excluded.banner').run(user.id,body.bio.trim(),avatar,banner);
+        return send(res,200,{ok:true});
+      }
+      const ratingMatch = path.match(/^\/api\/quotes\/([\w-]+)\/rating$/);
+      if (ratingMatch && ['GET','POST'].includes(method)) {
+        const quote = db.prepare('SELECT * FROM quotes WHERE id=? AND (business_id=? OR customer_id=?)').get(ratingMatch[1],user.id,user.id);
+        if (!quote) fail(404,'Quote not found.');
+        if (method === 'POST') {
+          if (quote.status !== 'accepted') fail(409,'Feedback is available after the customer accepts the quote.');
+          const body = await bodyOf(req);
+          if (!Number.isInteger(body.stars) || body.stars < 1 || body.stars > 5) fail(400,'Choose 1 to 5 stars.');
+          const target = user.id === quote.business_id ? quote.customer_id : quote.business_id;
+          db.prepare('INSERT INTO ratings VALUES (?,?,?,?) ON CONFLICT(quote_id,author_id) DO UPDATE SET stars=excluded.stars').run(quote.id,user.id,target,body.stars);
+        }
+        return send(res,200,{stars:db.prepare('SELECT stars FROM ratings WHERE quote_id=? AND author_id=?').get(quote.id,user.id)?.stars || null});
+      }
+
       const paymentMatch = path.match(/^\/api\/quotes\/([\w-]+)\/payment$/);
       if (paymentMatch && ['GET', 'POST'].includes(method)) {
         const quote = db.prepare('SELECT * FROM quotes WHERE id=? AND (customer_id=? OR business_id=?)').get(paymentMatch[1], user.id, user.id);
@@ -183,7 +222,7 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         const services = db.prepare('SELECT id, name, cents / 100.0 AS price FROM services WHERE business_id = ? ORDER BY rowid').all(businessId);
         const quotes = db.prepare(`SELECT q.id, q.name, q.request, q.quantity, q.cents / 100.0 AS price,
           q.cents * q.quantity / 100.0 AS total, q.status, EXISTS(SELECT 1 FROM sandbox_payments p WHERE p.quote_id=q.id AND p.state='paid') AS sandboxPaid, q.business_id AS businessId,
-          b.business_name AS businessName, c.name AS customerName FROM quotes q JOIN users b ON b.id = q.business_id
+          b.business_name AS businessName, c.name AS customerName, c.id AS customerId FROM quotes q JOIN users b ON b.id = q.business_id
           JOIN users c ON c.id = q.customer_id WHERE q.${user.role === 'business' ? 'business_id' : 'customer_id'} = ? ORDER BY q.created, q.rowid`).all(user.id);
         return send(res, 200, { businesses, businessId, services, quotes });
       }

@@ -11,6 +11,9 @@ import ServiceEditor from './components/ServiceEditor';
 import RequestDiscussion from './components/RequestDiscussion';
 import CustomerAssistant from './components/CustomerAssistant';
 import NotificationCenter from './components/NotificationCenter';
+import ProfileCard from './components/ProfileCard';
+import QuoteRating from './components/QuoteRating';
+import SettingsPage from './components/SettingsPage';
 import WidgetSettings from './components/WidgetSettings';
 
 function Review({ quote, onUpdate, busy }) {
@@ -19,6 +22,7 @@ function Review({ quote, onUpdate, busy }) {
 }
 
 function Workspace({ user, onSessionExpired }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [data, setData] = useState(null);
   const [businessId, setBusinessId] = useState(() => new URLSearchParams(window.location.search).get('business') || '');
   const [selectedServiceId, setSelectedServiceId] = useState('');
@@ -82,13 +86,15 @@ function Workspace({ user, onSessionExpired }) {
     setQuote({ name: custom ? 'Custom request' : service.name, request: request.trim(), quantity: count, price: custom ? null : service.price, total: custom ? null : Math.round(service.price * 100) * count / 100 });
     setError(''); setNotice('');
   }
+  if (settingsOpen) return <SettingsPage user={user} onSessionExpired={onSessionExpired} onBack={() => setSettingsOpen(false)} onOpenRequest={id => { setSettingsOpen(false); setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); refresh().catch(handleError); }} />;
   return <>
-    <div className="section-heading workspace-heading"><div><p className="eyebrow">{business ? user.businessName : `WELCOME, ${user.name}`}</p><h2>{business ? view === 'services' ? 'Your service catalog.' : view === 'inbox' ? 'Every request. One inbox.' : 'Your business, at a glance.' : 'Let’s make something.'}</h2><p className="muted">{business ? `${data?.quotes.filter(item => item.status === 'pending').length ?? 0} requests waiting for review` : 'Choose a business and share your idea.'}</p></div><button disabled={busy} className="secondary" onClick={() => { setError(''); refresh().catch(handleError); }}>Refresh</button></div>
+    <div className="section-heading workspace-heading"><div><p className="eyebrow">{business ? user.businessName : `WELCOME, ${user.name}`}</p><h2>{business ? view === 'services' ? 'Your service catalog.' : view === 'inbox' ? 'Every request. One inbox.' : 'Your business, at a glance.' : 'Let’s make something.'}</h2><p className="muted">{business ? `${data?.quotes.filter(item => item.status === 'pending').length ?? 0} requests waiting for review` : 'Choose a business and share your idea.'}</p></div><div className="workspace-tools"><button className="secondary" onClick={() => setSettingsOpen(true)}><span aria-hidden="true">⚙ </span>Settings</button><button disabled={busy} className="secondary" onClick={() => { setError(''); refresh().catch(handleError); }}>Refresh</button></div></div>
     {error && <p className="error feedback" role="alert">{error}</p>}<p className="notice" role="status">{notice}</p>
     <NotificationCenter user={user} onSessionExpired={onSessionExpired} onOpen={id => { setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); refresh().catch(handleError); }} />
     {focusedQuote && <button className="text-button" onClick={() => setFocusedQuote('')}>Show all requests</button>}
     {!data ? <p className="muted" role="status">{error ? 'Your workspace could not load.' : 'Loading your workspace…'}</p> : <>
       {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setData(null); setSelectedServiceId(''); setRequest(''); setQuantity(1); setCustomerMode('guided'); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
+      {!business && data.businessId && <ProfileCard key={data.businessId} profileId={data.businessId} accountId={user.id} />}
       {business && legacyServices.length > 0 && data.services.length === 0 && <div className="legacy-import"><p className="muted">There are {legacyServices.length} services saved from your earlier demo in this browser. Add them to this business account?</p><button disabled={busy} className="secondary" onClick={async () => { if (await mutate('/services/import', 'POST', { services: legacyServices }, 'Earlier services added to your account.')) setLegacyServices([]); }}>Import my earlier services</button></div>}
       {business && <>
         <nav className="view-nav" aria-label="Business workspace">{[['dashboard', 'Overview'], ['inbox', 'Request inbox'], ['services', 'Services'], ['widget', 'Website widget']].map(([id, label]) => <button key={id} className={view === id ? 'active' : ''} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>{label}{id === 'inbox' && <span className="nav-count">{data.quotes.filter(q => q.status === 'pending').length}</span>}</button>)}</nav>
@@ -115,6 +121,8 @@ function Workspace({ user, onSessionExpired }) {
           {data.quotes.length > 0 && visibleQuotes.length === 0 && <p className="empty-state">No requests match your search or status filter.</p>}
           {data.quotes.length === 0 && <div className="empty-state"><span aria-hidden="true">↗</span><h3>A little space for big ideas.</h3><p className="muted">Submitted requests and their progress will appear here.</p></div>}
           {(business && view === 'dashboard' ? [...data.quotes].reverse().slice(0, 3) : visibleQuotes).map(item => <article className="request-card" key={item.id}><div className="request-heading"><h3>{item.name}</h3><span className={`status ${item.sandboxPaid ? 'paid' : item.status}`}>{item.sandboxPaid ? 'Paid · Sandbox' : item.status === 'pending' ? 'Pending review' : item.status}</span></div><p className="muted">{business ? item.customerName : item.businessName}</p><p className="details muted">{item.request || 'No additional details'}</p><p className="muted request-reference">Request #{item.id.slice(0, 8)}</p><p className="request-total">{item.total === null ? 'Price to be confirmed' : `$${item.total.toFixed(2)}`} <span className="muted">· {item.quantity} units</span></p>
+            <details className="participant-profile"><summary>View {business ? 'customer' : 'business'} profile</summary><ProfileCard profileId={business ? item.customerId : item.businessId} accountId={user.id} compact /></details>
+            {item.status === 'accepted' && <QuoteRating quoteId={item.id} accountId={user.id} business={business} />}
             <RequestProgress status={item.status} paid={!!item.sandboxPaid} />
             <RequestDiscussion quote={item} user={user} onSessionExpired={onSessionExpired} />
             {business && item.status === 'pending' && <Review quote={item} busy={busy} onUpdate={changes => mutate(`/quotes/${item.id}`, 'PATCH', changes, changes.status === 'approved' ? 'Quote approved.' : 'Quote rejected.')} />}
