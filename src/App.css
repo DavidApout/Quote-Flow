@@ -188,3 +188,15 @@ h1 { font-size: 2rem; }
 .payment-next small { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 380px) { .request-progress ol { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; } .request-progress li:nth-child(2)::after { display: none; } }
+
+.dashboard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metric-card { text-align: left; background: var(--glass); color: var(--text); border: 1px solid var(--line); border-radius: 18px; padding: 22px; min-width: 0; }
+.metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .8rem; }
+.metric-icon { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 9px; }
+.dashboard-stats .metric-card strong { font-size: clamp(1.5rem, 3vw, 2.2rem); margin: 18px 0 8px; }
+.dashboard-stats .metric-card small { display: block; line-height: 1.5; min-height: 36px; font-weight: 400; }
+.metric-link { display: flex; justify-content: space-between; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); font-size: .75rem; }
+.metric-paid { border-color: #58ac87; background: linear-gradient(140deg, #5bc99818, transparent 80%), var(--glass); }
+.metric-paid .metric-icon { background: #dff8ec; color: #15583e; }
+@media (max-width: 950px) { .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 420px) { .dashboard-stats { grid-template-columns: 1fr; } .metric-card { padding: 18px; } }
