@@ -88,7 +88,7 @@ offering live payments to multiple businesses.
 
 ## Required links and access — complete before submitting
 
-- Public repository: https://github.com/DavidApout/Quote-Flow (currently private; public visibility confirmation pending).
+- Public repository: https://github.com/DavidApout/Quote-Flow (public access and MIT license verified anonymously on November 11, 2026).
 - Public YouTube demonstration under 3 minutes: NOT YET RECORDED/UPLOADED.
 - Functional demo access: JUDGE_SETUP.md; arrange any necessary dedicated test
   access in the submission's testing instructions, without publishing secrets.
@@ -100,7 +100,7 @@ offering live payments to multiple businesses.
 - [x] Source includes an MIT license file.
 - [x] Successful live business AI review verified in the application.
 - [x] Latest source committed and pushed to the repository.
-- [ ] Repository changed to public and accessible while signed out.
+- [x] Repository changed to public with entrant confirmation; anonymous GitHub API verified public access and MIT license.
 - [x] Fresh source install, seeding, quote workflow, 46 tests, lint, and build verified.
 - [ ] Judge-specific external provider access arranged and documented.
 - [ ] Video recorded, public on YouTube, under 3 minutes, and linked on Devpost.
