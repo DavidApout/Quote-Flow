@@ -1,6 +1,10 @@
+import DownloadQuote from './DownloadQuote';
+import JobDetails from './JobDetails';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import CustomerAssistant from './CustomerAssistant';
+import AttachmentPicker from './AttachmentPicker';
+import RequestAttachments from './RequestAttachments';
 import QuoteForm from './QuoteForm';
 import RequestProgress from './RequestProgress';
 import PaymentPanel from './PaymentPanel';
@@ -11,6 +15,8 @@ function GuestWidget({ businessId }) {
   const [data, setData] = useState(null);
   const [draft, setDraft] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [mode, setMode] = useState('guided');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -32,10 +38,10 @@ function GuestWidget({ businessId }) {
     setError(''); setPreview({ name: service?.name || 'Custom request', quantity, request: draft.request.trim(), price: service?.price ?? null, total: service ? Math.round(service.price * 100) * quantity / 100 : null });
   }
   async function submit(event) {
-    event.preventDefault(); if (pending.current) return;
+    event.preventDefault(); if (pending.current || attachmentBusy) return;
     const values = Object.fromEntries(new FormData(event.currentTarget));
     pending.current = true; setBusy(true); setError('');
-    try { await api('/public/requests', { method: 'POST', body: { ...values, businessId, serviceId: draft.serviceId, quantity: preview.quantity, request: preview.request, submissionKey: key.current } }); setSent(true); }
+    try { await api('/public/requests', { method: 'POST', body: { ...values, businessId, serviceId: draft.serviceId, quantity: preview.quantity, request: preview.request, submissionKey: key.current, attachments } }); setSent(true); }
     catch (error) { setError(error.message); }
     finally { pending.current = false; setBusy(false); }
   }
@@ -44,7 +50,8 @@ function GuestWidget({ businessId }) {
     {!data ? <p>Loading request page…</p> : sent ? <section className="panel"><p className="eyebrow">REQUEST RECEIVED</p><h2>Thanks. Your request is saved.</h2><p>Check your email for a private link to confirm your address, view your quote, and answer questions.</p><p className="muted">Keep the link private. Delivery can take a few minutes; check your spam folder.</p>{data.mailMode === 'preview' && <p className="notice">Local demo: no email was sent. The business can open the email preview in Notifications to test your private link.</p>}</section> : <section className="panel">
       <div className="view-nav"><button disabled={busy} onClick={() => { setMode('guided'); setPreview(null); }}>Help me describe it</button><button disabled={busy} onClick={() => { setDraft(draft || { serviceId: 'custom', quantity: 1, request: '' }); setMode('form'); }}>Use a form</button></div>
       {mode === 'guided' ? <CustomerAssistant services={data.services} businessId={businessId} allowAI={false} onUse={value => { setDraft(value); setMode('form'); setPreview(null); key.current = crypto.randomUUID(); }} /> : <fieldset disabled={busy}><QuoteForm requireDetails services={data.services} selectedServiceId={draft.serviceId} onServiceChange={v => change('serviceId', v)} quantity={draft.quantity} setQuantity={v => change('quantity', v)} request={draft.request} setRequest={v => change('request', v)} onGenerate={makePreview} /></fieldset>}
-      {preview && <><QuoteCard quote={preview} /><form onSubmit={submit}><fieldset disabled={busy}><h3>Where should we send your private link?</h3><label htmlFor="guest-name">Your name</label><input id="guest-name" name="name" required maxLength={100} autoComplete="name" onChange={() => { key.current = crypto.randomUUID(); }} /><label htmlFor="guest-email">Email</label><input id="guest-email" name="email" required type="email" maxLength={254} autoComplete="email" onChange={() => { key.current = crypto.randomUUID(); }} /><div className="honeypot" aria-hidden="true"><label>Leave this blank<input name="website" tabIndex={-1} autoComplete="off" /></label></div><p className="muted">We’ll email you about this request. Prices and timing need business approval. No payment is collected.</p><button>{busy ? 'Submitting…' : 'Submit request'}</button></fieldset></form></>}
+      <AttachmentPicker value={attachments} disabled={busy} onBusyChange={setAttachmentBusy} onChange={files => { setAttachments(files); setPreview(null); key.current = crypto.randomUUID(); }} />
+      {preview && <><QuoteCard quote={preview} /><form onSubmit={submit}><fieldset disabled={busy || attachmentBusy}><h3>Where should we send your private link?</h3><label htmlFor="guest-name">Your name</label><input id="guest-name" name="name" required maxLength={100} autoComplete="name" onChange={() => { key.current = crypto.randomUUID(); }} /><label htmlFor="guest-email">Email</label><input id="guest-email" name="email" required type="email" maxLength={254} autoComplete="email" onChange={() => { key.current = crypto.randomUUID(); }} /><div className="honeypot" aria-hidden="true"><label>Leave this blank<input name="website" tabIndex={-1} autoComplete="off" /></label></div><p className="muted">We’ll email you about this request. Prices and timing need business approval. No payment is collected.</p><button>{busy ? 'Submitting…' : 'Submit request'}</button></fieldset></form></>}
     </section>}
     {data && <details className="panel recovery-link"><summary>Already submitted? Get a new private link</summary><form onSubmit={async e => { e.preventDefault(); if (pending.current) return; const email = new FormData(e.currentTarget).get('email'); pending.current = true; setBusy(true); try { const result = await api('/public/recover-link', { method: 'POST', body: { businessId, email } }); setNotice(result.message); } catch (e) { setError(e.message); } finally { pending.current = false; setBusy(false); } }}><label htmlFor="recover-guest-email">Your email</label><input id="recover-guest-email" name="email" type="email" required /><button disabled={busy}>Email my latest request link</button></form><p role="status">{notice}</p></details>}
   </main>;
@@ -85,6 +92,9 @@ function PrivateRequest({ verificationOnly = false }) {
       {data.notifications.some(n => !n.read_at) && <div className="notice"><p>{data.notifications.filter(n => !n.read_at).length} new updates</p><ul>{data.notifications.filter(n => !n.read_at).map(n => <li key={n.id}>{n.title}</li>)}</ul><button className="secondary" disabled={busy} onClick={() => act('/track/read', {}, 'Updates marked as read.')}>Mark updates read</button></div>}
       {data.quote.status === 'approved' && <div className="actions"><button disabled={busy} onClick={() => act('/track/status', { status: 'accepted' }, 'Quote accepted. No payment has been collected.')}>Accept quote</button><button disabled={busy} className="secondary" onClick={() => act('/track/status', { status: 'declined' }, 'Quote declined.')}>Decline quote</button></div>}
       {data.quote.status === 'accepted' && <PaymentPanel quoteId={data.quote.id} token={token} />}
+      <DownloadQuote quote={data.quote} token={token} />
+      <JobDetails quote={data.quote} token={token} />
+      <RequestAttachments quoteId={data.quote.id} token={token} />
       <h3 className="conversation-title">Questions & replies</h3><ol className="message-list">{data.messages.map(m => <li key={m.id} className={m.role === 'customer' ? 'message-own' : ''}><p className="message-author">{m.role === 'customer' ? 'You' : 'Business'} · {new Date(m.created).toLocaleString()}</p><p className="details">{m.body}</p></li>)}</ol>{!data.messages.length && <p className="muted">No messages yet. Add a detail or ask a question.</p>}<form onSubmit={async e => { e.preventDefault(); if (await act('/track/messages', { message }, 'Reply sent to the business.')) setMessage(''); }}><label htmlFor="guest-message">Your message</label><textarea id="guest-message" value={message} required maxLength={3000} disabled={busy} onChange={e => setMessage(e.target.value)} /><button disabled={busy || !message.trim()}>Send reply</button></form>
     </section> : !error && <p>Opening your request…</p>}
   </main>;

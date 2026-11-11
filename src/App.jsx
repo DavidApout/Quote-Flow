@@ -1,3 +1,5 @@
+import DownloadQuote from './components/DownloadQuote';
+import JobDetails from './components/JobDetails';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { readSaved } from './lib/storage';
@@ -6,6 +8,8 @@ import AccountForm, { RecoveryCode } from './components/AccountForm';
 import RequestProgress from './components/RequestProgress';
 import PaymentPanel from './components/PaymentPanel';
 import QuoteCard from './components/QuoteCard';
+import AttachmentPicker from './components/AttachmentPicker';
+import RequestAttachments from './components/RequestAttachments';
 import QuoteForm from './components/QuoteForm';
 import ServiceEditor from './components/ServiceEditor';
 import RequestDiscussion from './components/RequestDiscussion';
@@ -29,6 +33,8 @@ function Workspace({ user, onSessionExpired }) {
   const [request, setRequest] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [quote, setQuote] = useState(null);
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -93,7 +99,7 @@ function Workspace({ user, onSessionExpired }) {
     <NotificationCenter user={user} onSessionExpired={onSessionExpired} onOpen={id => { setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); refresh().catch(handleError); }} />
     {focusedQuote && <button className="text-button" onClick={() => setFocusedQuote('')}>Show all requests</button>}
     {!data ? <p className="muted" role="status">{error ? 'Your workspace could not load.' : 'Loading your workspace…'}</p> : <>
-      {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setData(null); setSelectedServiceId(''); setRequest(''); setQuantity(1); setCustomerMode('guided'); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
+      {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy || attachmentBusy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setAttachments([]); setQuote(null); setData(null); setSelectedServiceId(''); setRequest(''); setQuantity(1); setCustomerMode('guided'); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
       {!business && data.businessId && <ProfileCard key={data.businessId} profileId={data.businessId} accountId={user.id} />}
       {business && legacyServices.length > 0 && data.services.length === 0 && <div className="legacy-import"><p className="muted">There are {legacyServices.length} services saved from your earlier demo in this browser. Add them to this business account?</p><button disabled={busy} className="secondary" onClick={async () => { if (await mutate('/services/import', 'POST', { services: legacyServices }, 'Earlier services added to your account.')) setLegacyServices([]); }}>Import my earlier services</button></div>}
       {business && <>
@@ -114,7 +120,8 @@ function Workspace({ user, onSessionExpired }) {
         {business ? view === 'services' && <ServiceEditor services={data.services} busy={busy} onSave={service => mutate(service.id ? `/services/${service.id}` : '/services', service.id ? 'PATCH' : 'POST', { name: service.name, price: service.price }, 'Service saved.')} onRemove={id => mutate(`/services/${id}`, 'DELETE', undefined, 'Service removed. Existing quotes are unchanged.')} /> : <section className="panel"><p className="eyebrow">01 / YOUR PROJECT</p><h2>Request a quote</h2>{!data.businessId ? <p className="muted">No businesses have joined yet. A business owner needs to create an account before you can request a quote.</p> : <>
           <div className="view-nav" aria-label="Request entry mode"><button disabled={busy} className={customerMode === 'guided' ? 'active' : ''} onClick={() => { setCustomerMode('guided'); clearQuote(); }}>Help me describe it</button><button disabled={busy} className={customerMode === 'form' ? 'active' : ''} onClick={() => setCustomerMode('form')}>Use a form</button></div>
           {customerMode === 'guided' ? <CustomerAssistant key={data.businessId} services={data.services} businessId={data.businessId} accountId={user.id} onSessionExpired={onSessionExpired} onUse={draft => { setSelectedServiceId(draft.serviceId); setQuantity(draft.quantity); setRequest(draft.request); clearQuote(); setCustomerMode('form'); setNotice('Your answers are ready. Review the form, then preview and submit.'); }} /> : <fieldset disabled={busy}><QuoteForm services={data.services} selectedServiceId={selectedServiceId} onServiceChange={value => { setSelectedServiceId(value); clearQuote(); }} request={request} setRequest={value => { setRequest(value); clearQuote(); }} quantity={quantity} setQuantity={value => { setQuantity(value); clearQuote(); }} onGenerate={generate} /></fieldset>}
-          {quote && <><QuoteCard quote={quote} /><button disabled={busy} className="submit-request" onClick={async () => { if (await mutate('/quotes', 'POST', { businessId: data.businessId, serviceId: selectedServiceId, request: quote.request, quantity: quote.quantity }, 'Request sent. The business will review your quote.')) setQuote(null); }}>{busy ? 'Sending…' : 'Submit for approval'}</button></>}
+          <AttachmentPicker key={data.businessId} value={attachments} disabled={busy} onBusyChange={setAttachmentBusy} onChange={files => { setAttachments(files); clearQuote(); }} />
+          {quote && <><QuoteCard quote={quote} /><button disabled={busy || attachmentBusy} className="submit-request" onClick={async () => { if (await mutate('/quotes', 'POST', { businessId: data.businessId, serviceId: selectedServiceId, request: quote.request, quantity: quote.quantity, attachments }, 'Request sent. The business will review your quote.')) { setQuote(null); setAttachments([]); } }}>{busy ? 'Sending…' : 'Submit for approval'}</button></>}
         </>}</section>}
         <section className="panel" hidden={business && ['services', 'widget'].includes(view)}><p className="eyebrow">{business ? 'REVIEW & APPROVE' : '02 / WHAT’S NEXT'}</p><div className="request-heading"><h2>{business ? (view === 'dashboard' ? 'Recent requests' : 'Request inbox') : 'Your requests'}</h2>{business && view === 'dashboard' && <button className="text-button" onClick={() => setView('inbox')}>View all →</button>}</div>
           {business && view === 'inbox' && <div className="inbox-tools"><div><label htmlFor="search">Search requests</label><input id="search" type="search" placeholder="Customer, service, or details" value={search} onChange={e => setSearch(e.target.value)} /></div><div><label htmlFor="status-filter">Status</label><select id="status-filter" value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'pending', 'approved', 'accepted', 'unpaid', 'paid', 'rejected', 'declined'].map(status => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status === 'pending' ? 'Pending review' : status === 'unpaid' ? 'Awaiting payment' : status === 'paid' ? 'Paid · Sandbox' : status}</option>)}</select></div></div>}
@@ -124,6 +131,9 @@ function Workspace({ user, onSessionExpired }) {
             <details className="participant-profile"><summary>View {business ? 'customer' : 'business'} profile</summary><ProfileCard profileId={business ? item.customerId : item.businessId} accountId={user.id} compact /></details>
             {item.status === 'accepted' && <QuoteRating quoteId={item.id} accountId={user.id} business={business} />}
             <RequestProgress status={item.status} paid={!!item.sandboxPaid} />
+            <DownloadQuote quote={item} accountId={user.id} />
+            <JobDetails quote={item} accountId={user.id} business={business} />
+            <RequestAttachments quoteId={item.id} accountId={user.id} />
             <RequestDiscussion quote={item} user={user} onSessionExpired={onSessionExpired} />
             {business && item.status === 'pending' && <Review quote={item} busy={busy} onUpdate={changes => mutate(`/quotes/${item.id}`, 'PATCH', changes, changes.status === 'approved' ? 'Quote approved.' : 'Quote rejected.')} />}
             {!business && item.status === 'approved' && <div className="actions"><button disabled={busy} onClick={() => mutate(`/quotes/${item.id}`, 'PATCH', { status: 'accepted' }, 'Quote accepted.')}>Accept quote</button><button disabled={busy} className="secondary" onClick={() => mutate(`/quotes/${item.id}`, 'PATCH', { status: 'declined' }, 'Quote declined.')}>Decline</button></div>}

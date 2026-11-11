@@ -12,7 +12,7 @@ const emailOf = value => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Enter a valid email.');
   return email;
 };
-export function createEngagement({ db, origin, secure, now, limit, transaction, bodyOf, send, dummyHash,
+export function createEngagement({ db, attachments, origin, secure, now, limit, transaction, bodyOf, send, dummyHash,
   mailMode = secure ? 'disabled' : 'preview', mailKey = '', mailFrom = '', mailTransport, mailWebhookSecret = '' }) {
   if (!['preview', 'disabled', 'resend'].includes(mailMode)) throw Error('Invalid MAIL_MODE.');
   if (secure && mailMode === 'preview') throw Error('Email preview is local-development only.');
@@ -77,7 +77,7 @@ export function createEngagement({ db, origin, secure, now, limit, transaction, 
     }
     if (path === '/api/public/requests' && method === 'POST') {
       limit(`guest-ip:${req.socket.remoteAddress}`, 10);
-      const body = await bodyOf(req);
+      const body = await bodyOf(req, 4300000);
       if (body.website) fail(400, 'Unable to submit this request.');
       const businessId = clean(body.businessId, 100, 'business');
       if (!settings(businessId)?.enabled) fail(404, 'This business is not accepting website requests.');
@@ -88,7 +88,11 @@ export function createEngagement({ db, origin, secure, now, limit, transaction, 
       if (!Number.isSafeInteger(body.quantity) || body.quantity < 1 || body.quantity > 10000) fail(400, 'Enter a whole-number quantity from 1 to 10,000.');
       const service = db.prepare('SELECT * FROM services WHERE business_id=? AND id=?').get(businessId, body.serviceId || '');
       if (body.serviceId !== 'custom' && !service) fail(404, 'Choose a currently available service.');
-      const fingerprint = hash(JSON.stringify([email, name, request, body.quantity, body.serviceId]));
+      const files = await attachments.prepare(body.attachments);
+      const fingerprintParts = [email, name, request, body.quantity, body.serviceId];
+      // Keep old no-file retry keys compatible with requests created before uploads.
+      if (files.length) fingerprintParts.push(files.map(file => [file.name, file.digest]));
+      const fingerprint = hash(JSON.stringify(fingerprintParts));
       const existing = db.prepare('SELECT * FROM guest_requests WHERE business_id=? AND submission_key=?').get(businessId, key);
       if (existing && existing.fingerprint !== fingerprint) fail(409, 'This submission changed. Start a new request.');
       if (existing) return send(res, 200, { received: true, mailMode }), true;
@@ -98,6 +102,7 @@ export function createEngagement({ db, origin, secure, now, limit, transaction, 
         // Guest identity never claims or signs into an account with the submitted email.
         db.prepare('INSERT INTO users VALUES (?,?,?,?,?,?,?)').run(userId, `guest-${userId}@guest.invalid`, name, 'customer', null, dummyHash, hash(randomBytes(32)));
         db.prepare('INSERT INTO quotes VALUES (?,?,?,?,?,?,?,?,?)').run(quoteId, businessId, userId, service?.name || 'Custom request', request, body.quantity, service?.cents ?? null, 'pending', now());
+        attachments.insert(quoteId, files);
         db.prepare('INSERT INTO guest_requests VALUES (?,?,?,?,?,?)').run(quoteId, userId, email, key, businessId, fingerprint);
         const link = guestLink(quoteId);
         queue({ key: `guest-confirm:${quoteId}`, userId, email, title: 'Confirm your email and track your request', body: `Your request has been saved. Confirm your email on the private page below to view the request and reply.\n\n${link}\n\nThis link expires in 30 days. Do not forward it. If you did not submit a request, ignore this email.`, force: true });

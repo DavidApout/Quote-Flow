@@ -448,12 +448,25 @@ test('payment API enforces customer ownership, accepted pricing, CSRF, and busin
   assert.equal((await post(stranger.cookie, 'create')).status, 404);
   assert.equal((await post(owner.cookie, 'create')).status, 403);
   assert.equal((await post(buyer.cookie, 'create', { headers: { Origin: 'https://evil.example' } })).status, 403);
+  const jobPath=quotePath+'/job';
+  assert.equal((await app.request(jobPath,{cookie:stranger.cookie})).status,404);
+  assert.equal((await app.request(jobPath,{method:'PATCH',cookie:owner.cookie,body:{stage:'in_progress',agreed:'2026-12-12'}})).status,409);
+  assert.equal((await app.request(jobPath,{method:'PATCH',cookie:buyer.cookie,body:{requested:'2026-02-30'}})).status,400);
+  assert.equal((await app.request(jobPath,{method:'PATCH',cookie:buyer.cookie,body:{requested:'2026-12-12',stage:'completed'}})).body.stage,'not_started');
   assert.equal((await post(buyer.cookie, 'create')).status, 200);
   assert.equal(payload.purchase_units[0].amount.value, '60.00');
   assert.equal((await app.request(path, { cookie: owner.cookie })).body.approvalUrl, null);
   assert.equal((await post(buyer.cookie, 'capture')).body.state, 'paid');
   assert.equal((await post(buyer.cookie, 'capture')).body.state, 'paid'); assert.equal(captures, 1);
   assert.equal((await app.request(path, { cookie: owner.cookie })).body.captureId, 'CAPTURE12345');
+  assert.equal((await app.request(jobPath,{method:'PATCH',cookie:owner.cookie,body:{stage:'completed',agreed:'2026-12-13'}})).status,409);
+  for (const stage of ['in_progress','ready','completed']) {
+    const result=await app.request(jobPath,{method:'PATCH',cookie:owner.cookie,body:{stage,agreed:'2026-12-13'}});
+    assert.equal(result.status,200); assert.equal(result.body.stage,stage);
+    assert.equal((await app.request(jobPath,{cookie:buyer.cookie})).body.stage,stage);
+  }
+  assert.equal((await app.request(jobPath,{cookie:buyer.cookie})).body.requested,'2026-12-12');
+
   for (const user of [owner, buyer]) assert.equal((await app.request('/notifications', { cookie: user.cookie })).body.notifications.filter(n => n.title.startsWith('Sandbox payment confirmed')).length, 1);
 });
 
@@ -526,4 +539,62 @@ test('profiles protect customer privacy and ratings require participation and ac
   assert.equal((await rate(3,owner.cookie)).status,200);
   assert.deepEqual((await app.request(`/profiles/${id}`,{cookie:buyer.cookie})).body.rating,{average:3,count:1});
   assert.equal((await app.request(`/profiles/${stranger.body.user.id}`,{cookie:stranger.cookie})).body.rating.count,0);
+});
+
+test('request images are atomic, participant-only, excluded from AI input, and survive restart', async t => {
+  const { default: sharp } = await import('sharp');
+  const png = await sharp({create:{width:20,height:20,channels:4,background:'#244e6088'}}).png().toBuffer();
+  const file = {name:'logo.png',dataUrl:`data:image/png;base64,${png.toString('base64')}`};
+  const dir = await mkdtemp(join(tmpdir(),'quoteflow-attachments-api-')); t.after(() => rm(dir,{recursive:true,force:true}));
+  const database=join(dir,'test.sqlite');
+  let reviewInput;
+  let app=await start({database,aiReview:async input=>{ reviewInput=input; return {summary:'Demo',missing:[],questions:[],matches:[],reply:'Thanks'}; }}); t.after(()=>app.stop());
+  const owner=await register(app.request,'attach-owner@example.test','business');
+  const buyer=await register(app.request,'attach-buyer@example.test');
+  const stranger=await register(app.request,'attach-stranger@example.test','business');
+  const request={businessId:owner.body.user.id,serviceId:'custom',quantity:12,request:'Navy shirts with attached logo',attachments:[file]};
+  const invalid=await app.request('/quotes',{method:'POST',cookie:buyer.cookie,body:{...request,attachments:[{name:'x.svg',dataUrl:'data:image/svg+xml;base64,PHN2Zy8+'}]}});
+  assert.equal(invalid.status,400);
+  assert.equal((await app.request('/workspace',{cookie:owner.cookie})).body.quotes.length,0);
+  const created=await app.request('/quotes',{method:'POST',cookie:buyer.cookie,body:request}); assert.equal(created.status,201);
+  const path=`/quotes/${created.body.id}/attachments`;
+  const visible=await app.request(path,{cookie:owner.cookie}); assert.equal(visible.status,200); assert.equal(visible.body.attachments.length,1);
+  assert.equal(visible.body.attachments[0].name,'logo.png');
+  assert.deepEqual((await app.request(path,{cookie:buyer.cookie})).body,visible.body);
+  assert.equal((await app.request(path,{cookie:stranger.cookie})).status,404);
+  assert.equal((await app.request(path)).status,401);
+  assert.equal((await app.request(path,{method:'POST',cookie:owner.cookie,body:{attachments:[file]}})).status,404);
+  assert.equal((await app.request(`/quotes/${created.body.id}/review`,{method:'POST',cookie:owner.cookie,body:{}})).status,200);
+  assert.equal(JSON.stringify(reviewInput).includes('base64'),false);
+  assert.equal(JSON.stringify(reviewInput).includes('attachments'),false);
+  await app.stop(); app=await start({database});
+  assert.deepEqual((await app.request(path,{cookie:owner.cookie})).body,visible.body);
+  assert.equal((await app.request('/workspace',{cookie:owner.cookie})).body.quotes[0].status,'pending');
+});
+
+test('widget attachments require verified private access and retry keys include image contents', async t => {
+  const { default: sharp } = await import('sharp');
+  const image=async color=>({name:'reference.png',dataUrl:`data:image/png;base64,${(await sharp({create:{width:10,height:10,channels:4,background:color}}).png().toBuffer()).toString('base64')}`});
+  const file=await image('navy'),changed=await image('red');
+  let time=Date.now();
+  const app=await start({now:()=>time}); t.after(app.stop);
+  const owner=await register(app.request,'widget-images@example.test','business'); await enableWidget(app,owner);
+  const body={businessId:owner.body.user.id,serviceId:'custom',quantity:12,request:'Demo shirts',name:'Demo guest',email:'demo-guest@example.test',submissionKey:'attachment-demo',attachments:[file]};
+  const submit=data=>app.request('/public/requests',{method:'POST',body:data});
+  const results=await Promise.all([submit(body),submit(body)]);
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,201]);
+  assert.equal(JSON.stringify(results[0].body).includes('base64'),false);
+  assert.equal((await submit({...body,attachments:[changed]})).status,409);
+  const list=(await app.request('/workspace',{cookie:owner.cookie})).body.quotes; assert.equal(list.length,1);
+  const expected=(await app.request(`/quotes/${list[0].id}/attachments`,{cookie:owner.cookie})).body;
+  assert.equal(expected.attachments.length,1);
+  const headers={'X-QuoteFlow-Token':await previewToken(app,owner,'Confirm your email and track your request')};
+  assert.equal((await app.request('/track/attachments')).status,401);
+  assert.equal((await app.request('/track/attachments',{headers})).status,403);
+  await app.request('/track/confirm',{method:'POST',headers,body:{}});
+  assert.deepEqual((await app.request('/track/attachments',{headers})).body,expected);
+  // Neither query nor body IDs can change the quote bound to a private link.
+  assert.deepEqual((await app.request('/track/attachments?quoteId=other',{headers})).body,expected);
+  time+=31*86400000;
+  assert.equal((await app.request('/track/attachments',{headers})).status,401);
 });

@@ -227,3 +227,23 @@ h1 { font-size: 2rem; }
 .participant-profile, .quote-rating { margin: 18px 0; }
 .participant-profile summary, .quote-rating summary { cursor: pointer; font-weight: 600; }
 @media(max-width: 600px) { .profile-banner { height: 120px; } .profile-body { padding: 0 18px 20px; } }
+
+.attachment-picker { margin: 24px 0; padding: 18px; border: 1px dashed var(--line); border-radius: 16px; }
+.attachment-picker > label { display: block; font-size: .95rem; }
+.attachment-picker > p { margin: 10px 0; line-height: 1.5; }
+.attachment-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 12px; list-style: none; padding: 0; margin: 16px 0; }
+.attachment-grid li { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.attachment-grid img, .attachment-gallery summary img { display: block; width: 100%; height: 130px; object-fit: contain; background: #edf0f2; border-radius: 10px; }
+.attachment-grid span, .attachment-gallery span { display: block; font-size: .8rem; overflow-wrap: anywhere; }
+.request-attachments { margin: 18px 0; }
+.request-attachments > summary { cursor: pointer; font-weight: 600; }
+.attachment-gallery { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 14px; margin: 16px 0; }
+.attachment-gallery details { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.attachment-gallery summary { cursor: pointer; }
+.attachment-gallery span { margin: 8px 0; }
+.attachment-gallery details[open] { grid-column: 1 / -1; }
+.attachment-gallery .attachment-full { width: 100%; max-height: 70vh; object-fit: contain; background: #edf0f2; margin: 16px 0; }
+
+.job-details { margin: 18px 0; }
+.job-details summary { cursor: pointer; font-weight: 600; }
+.document-download { margin: 18px 0; }

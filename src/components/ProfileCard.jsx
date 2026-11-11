@@ -3,8 +3,11 @@ import { api } from '../lib/api';
 
 async function resizePhoto(file, banner) {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) throw Error('Choose a JPG, PNG, or WebP image under 8 MB.');
-  const url = URL.createObjectURL(file);
-  try {
+  const url = await new Promise((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(Error('Unable to read this image.')); reader.readAsDataURL(file);
+  });
+  {
     const img = new Image(); img.src = url; await img.decode();
     const canvas = document.createElement('canvas');
     canvas.width = banner ? 1200 : 320; canvas.height = banner ? 360 : 320;
@@ -14,7 +17,7 @@ async function resizePhoto(file, banner) {
     const result = canvas.toDataURL('image/jpeg', .8);
     if (result.length > 500000) throw Error('This image is too detailed. Choose a smaller image.');
     return result;
-  } finally { URL.revokeObjectURL(url); }
+  }
 }
 
 export default function ProfileCard({ profileId, accountId, editable = false, compact = false }) {

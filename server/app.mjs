@@ -1,3 +1,4 @@
+import { createAttachments } from './attachments.mjs';
 import { createPayments } from './paypal.mjs';
 import { createEngagement } from './engagement.mjs';
 import { reviewRequest } from './ai.mjs';
@@ -58,6 +59,7 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
     CREATE INDEX IF NOT EXISTS quotes_business ON quotes(business_id);`);
   db.exec(`CREATE TABLE IF NOT EXISTS profiles (user_id TEXT PRIMARY KEY REFERENCES users(id), bio TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '', banner TEXT NOT NULL DEFAULT '');
     CREATE TABLE IF NOT EXISTS ratings (quote_id TEXT NOT NULL REFERENCES quotes(id), author_id TEXT NOT NULL REFERENCES users(id), target_id TEXT NOT NULL REFERENCES users(id), stars INTEGER NOT NULL CHECK(stars BETWEEN 1 AND 5), PRIMARY KEY(quote_id,author_id));`);
+  db.exec("CREATE TABLE IF NOT EXISTS jobs (quote_id TEXT PRIMARY KEY REFERENCES quotes(id), stage TEXT NOT NULL DEFAULT 'not_started', requested TEXT NOT NULL DEFAULT '', agreed TEXT NOT NULL DEFAULT '')");
   const dummyHash = await hashPassword(randomBytes(24).toString('hex'));
   const attempts = new Map();
   const reviewing = new Set();
@@ -91,8 +93,34 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
     db.exec('BEGIN IMMEDIATE');
     try { const value = work(); db.exec('COMMIT'); return value; } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
-  const engagement = createEngagement({ db, origin, secure, now, limit, transaction, bodyOf, send, dummyHash, mailMode, mailKey, mailFrom, mailTransport, mailWebhookSecret });
+  const attachments = createAttachments({ db });
+  const engagement = createEngagement({ db, attachments, origin, secure, now, limit, transaction, bodyOf, send, dummyHash, mailMode, mailKey, mailFrom, mailTransport, mailWebhookSecret });
   const payments = createPayments({ db, origin, now, transaction, quoteEvent: engagement.quoteEvent, config: paypalConfig, transport: paypalTransport });
+  async function jobRoute(req,res,id,userId,method) {
+    const quote=db.prepare('SELECT * FROM quotes WHERE id=? AND (business_id=? OR customer_id=?)').get(id,userId,userId);
+    if(!quote) fail(404,'Request not found.');
+    const body=method==='PATCH'?await bodyOf(req):null;
+    const saved=db.prepare('SELECT stage,requested,agreed FROM jobs WHERE quote_id=?').get(id) || {stage:'not_started',requested:'',agreed:''};
+    if(method==='PATCH') {
+      const owner=userId===quote.business_id;
+      const date=owner?body.agreed:body.requested;
+      if(typeof date!=='string' || (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date+'T00:00:00Z')) || new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date))) fail(400,'Enter a valid date.');
+      const stage=owner?body.stage:saved.stage;
+      const stages=['not_started','in_progress','ready','completed'];
+      if(!stages.includes(stage)) fail(400,'Choose a job status.');
+      if(stage!==saved.stage) {
+        if(!db.prepare("SELECT 1 FROM sandbox_payments WHERE quote_id=? AND state='paid'").get(id)) fail(409,'Confirm sandbox payment before starting the demo job.');
+        if(stages.indexOf(stage)!==stages.indexOf(saved.stage)+1) fail(409,'Move the job forward one step at a time.');
+      }
+      const next={stage,requested:owner?saved.requested:date,agreed:owner?date:saved.agreed};
+      if(JSON.stringify(next)!==JSON.stringify(saved)) transaction(()=>{
+        db.prepare('INSERT INTO jobs VALUES (?,?,?,?) ON CONFLICT(quote_id) DO UPDATE SET stage=excluded.stage,requested=excluded.requested,agreed=excluded.agreed').run(id,next.stage,next.requested,next.agreed);
+        engagement.quoteEvent(id,`job:${randomUUID()}`,owner?'The business updated your job or agreed date':'The customer updated their requested date',owner?'customer':'business');
+      });
+      return send(res,200,next);
+    }
+    return send(res,200,saved);
+  }
   async function handle(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -106,6 +134,10 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         // Requiring JSON plus a custom header blocks cross-site forms; no CORS is enabled.
         if (req.headers['x-quoteflow-request'] !== '1' || req.headers.origin !== origin) fail(403, 'Reload this page before trying again.');
       }
+      if (path === '/api/track/attachments' && method === 'GET') {
+        const guest = engagement.authorizeGuest(req);
+        return send(res, 200, { attachments: attachments.list(guest.quote_id) });
+      }
       if (path === '/api/track/payment' && ['GET', 'POST'].includes(method)) {
         const guest = engagement.authorizeGuest(req);
         const quote = db.prepare('SELECT * FROM quotes WHERE id=?').get(guest.quote_id);
@@ -114,6 +146,10 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         if (!['create', 'capture', 'check'].includes(body.action)) fail(400, 'Choose a payment action.');
         limit(`payment:${quote.id}`, 30);
         return send(res, 200, await payments.act(quote, body.action));
+      }
+      if (path === '/api/track/job' && ['GET','PATCH'].includes(method)) {
+        const guest = engagement.authorizeGuest(req);
+        return await jobRoute(req,res,guest.quote_id,guest.user_id,method);
       }
       if (await engagement.publicRoutes(req, res, path, method)) return;
       if (path === '/api/auth/session' && method === 'GET') { const user = session(req); return send(res, 200, { user: user ? publicUser(user) : null }); }
@@ -161,6 +197,16 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       if (!user) fail(401, 'Please sign in again.');
       if (req.headers['x-quoteflow-user'] && req.headers['x-quoteflow-user'] !== user.id) fail(401, 'Your account changed. Please sign in again.');
       if (await engagement.accountRoutes(req, res, path, method, user)) return;
+      const jobMatch = path.match(/^\/api\/quotes\/([\w-]+)\/job$/);
+      if (jobMatch && ['GET','PATCH'].includes(method)) return await jobRoute(req,res,jobMatch[1],user.id,method);
+
+      const attachmentMatch = path.match(/^\/api\/quotes\/([\w-]+)\/attachments$/);
+      if (attachmentMatch && method === 'GET') {
+        const quote = db.prepare('SELECT id FROM quotes WHERE id=? AND (business_id=? OR customer_id=?)').get(attachmentMatch[1],user.id,user.id);
+        if (!quote) fail(404,'Request not found.');
+        return send(res,200,{attachments:attachments.list(quote.id)});
+      }
+
       const profileMatch = path.match(/^\/api\/profiles\/([\w-]+)$/);
       if (profileMatch && method === 'GET') {
         const target = db.prepare('SELECT id,name,role,business_name FROM users WHERE id=?').get(profileMatch[1]);
@@ -319,7 +365,8 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       }
       if (path === '/api/quotes' && method === 'POST') {
         if (user.role !== 'customer') fail(403, 'Only customers can request quotes.');
-        const body = await bodyOf(req);
+        limit(`request:${user.id}`, 20);
+        const body = await bodyOf(req, 4300000);
         const businessId = text(body.businessId, 100, 'business');
         if (!db.prepare("SELECT id FROM users WHERE id = ? AND role = 'business'").get(businessId)) fail(404, 'Business not found.');
         if (!Number.isSafeInteger(body.quantity) || body.quantity < 1 || body.quantity > 10000) fail(400, 'Enter a whole-number quantity from 1 to 10,000.');
@@ -328,10 +375,12 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         const service = custom ? null : db.prepare('SELECT * FROM services WHERE id = ? AND business_id = ?').get(text(body.serviceId, 100, 'service'), businessId);
         if (!custom && !service) fail(404, 'This service is no longer available.');
         if (custom && !body.request.trim()) fail(400, 'Describe your custom request.');
+        const files = await attachments.prepare(body.attachments);
         const id = randomUUID();
         // Prices and ownership always come from the server, never client totals or roles.
         transaction(() => {
           db.prepare('INSERT INTO quotes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, businessId, user.id, custom ? 'Custom request' : service.name, body.request.trim(), body.quantity, service?.cents ?? null, 'pending', now());
+          attachments.insert(id, files);
           engagement.quoteEvent(id, `new:${id}`, 'New quote request', 'business');
           engagement.quoteEvent(id, `received:${id}`, 'Your request was received', 'customer');
         });
