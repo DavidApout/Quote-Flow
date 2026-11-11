@@ -1,5 +1,5 @@
 // Explicit, local-only demo setup. Never run against a production database.
-const origin = process.env.DEMO_ORIGIN || 'http://127.0.0.1:5178';
+const origin = process.env.DEMO_ORIGIN || 'http://127.0.0.1:5173';
 if (new URL(origin).hostname !== '127.0.0.1') throw Error('Demo setup only supports 127.0.0.1.');
 const password = 'QuoteFlow local demo 2026!';
 async function request(path, body, cookie = '', method = 'POST') {

@@ -31,6 +31,7 @@ export default function PaymentPanel({ quoteId, accountId, token, business = fal
   }
   return <section className={`payment-panel ${payment?.state === 'paid' ? 'payment-confirmed' : ''}`} aria-label="Sandbox payment">
     <p className="eyebrow">PAYPAL SANDBOX · TEST MONEY ONLY</p>
+    <p className="legal-payment-link"><a href="/legal/demo" target="_blank" rel="noopener noreferrer">About demo payments<span className="sr-only"> (opens in a new tab)</span></a></p>
     {error && <p className="error" role="alert">{error}</p>}
     {!payment ? <p role="status">Loading payment details…</p> : payment.state === 'paid' ? <><div className="payment-success-icon" aria-hidden="true">✓</div><h3>Sandbox payment confirmed</h3><p className="payment-total">${payment.amount.toFixed(2)} USD</p><p className="muted">Test receipt: {payment.captureId}<br />{new Date(payment.paidAt).toLocaleString()} · No real money collected.</p><div className="payment-next"><strong>What happens next</strong><p>{business ? 'Use Messages & questions to confirm timing and pickup details with the customer.' : 'Use Messages & questions to agree on timing and pickup details with the business.'}</p><small>This is a demo payment, not confirmation of real fulfillment.</small></div></> : <>
       <h3>{business ? 'Awaiting sandbox payment' : 'Complete your sandbox checkout'}</h3>

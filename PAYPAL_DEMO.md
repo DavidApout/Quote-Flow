@@ -21,8 +21,7 @@ and supports totals from $0.01 to $10,000. No real money is collected.
 
    The merchant ID belongs to that sandbox seller account. The QuoteFlow business
    ID is the ID in the business's Website widget URL (`/widget/BUSINESS-ID`).
-   For the existing isolated Studio North demo it is
-   `4c702dd8-2b03-45c4-b5d7-7d9a434bd63b`. Use that only with its demo database.
+   A fresh database has a new owner ID. Use its actual ID; never copy an ID from an old demo.
 3. Restart `npm run dev`. Keep `APP_ORIGIN` equal to the exact browser origin.
    A custom domain is not needed for this same-computer demo. If PayPal requires
    an HTTPS return URL in your account/setup, use an HTTPS development URL and
@@ -63,8 +62,7 @@ email link or sign in again. No private-link token is sent to PayPal.
 Automated tests use simulated PayPal responses. They cover account authorization,
 private-link verification, pricing tampering, invalid provider details, duplicate
 clicks, persistent receipts, concurrent calls, interrupted responses, and the
-sandbox-only transport. **A real PayPal Sandbox transaction has not been run:**
-the four configuration values above are absent in this local environment.
+sandbox-only transport. A real PayPal Sandbox capture was verified on November 11, 2026: $300.00 USD, capture `28909158BV5205426`, request `361af87b-fd07-4ad6-9cbb-8122e3c11e3c`. Both accounts saw the receipt; the owner completed all job stages and the customer downloaded the final receipt. See [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md). The private presentation database and credentials are excluded from the public source.
 
 This is a single-merchant demo integration, not a marketplace. Other QuoteFlow
 businesses cannot take payments through the configured merchant. Refunds,
@@ -78,8 +76,7 @@ References: [Orders create](https://developer.paypal.com/api/orders/v2/orders-cr
 [Orders capture](https://developer.paypal.com/api/orders/v2/orders-capture),
 [PayPal request idempotency](https://developer.paypal.com/api/rest/reference/idempotency/).
 
-Latest local verification: **38 tests passed**, ESLint passed, production build
-passed, and `git diff --check` passed. Browser inspection confirmed the return
-page and the accepted quote's unconfigured payment notice at mobile width. The
-existing isolated demo database contains an accepted $300 fictional checkout
-request for trying setup; no PayPal order or outbound email was created for it.
+Latest local verification: **46 tests passed**, ESLint and production build passed.
+The November 11 browser flow also verified actual PayPal Sandbox payment and
+customer-visible job completion. No real money or outbound email was involved.
+For a fresh installation use [JUDGE_SETUP.md](JUDGE_SETUP.md).

@@ -1,0 +1,27 @@
+/* Legal information shares the app palette and uses readable document spacing. */
+.legal-footer { max-width: 1184px; margin: 0 auto 32px; padding: 20px 24px; border-top: 1px solid var(--line); display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px 28px; }
+.legal-footer nav { display: flex; gap: 8px 22px; flex-wrap: wrap; }
+.legal-footer a, .legal-tabs a { display: inline-flex; align-items: center; min-height: 44px; }
+.legal-footer a, .legal-notice a, .legal-page a, .legal-payment-link a { color: var(--accent); text-underline-offset: 3px; }
+.legal-footer a { font-size: .78rem; text-decoration: none; }
+.legal-footer a:hover { text-decoration: underline; }
+.legal-footer p { font-size: .73rem; text-align: left; }
+.legal-notice { color: var(--muted); font-size: .78rem; line-height: 1.75; margin: 16px 0; }
+.legal-payment-link { font-size: .75rem; margin: 8px 0 16px; }
+.legal-page { max-width: 880px; padding: 32px 32px 64px; }
+.legal-header { padding-bottom: 24px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+.legal-header a { font-size: .84rem; }
+.legal-header .legal-brand { font-size: 1.25rem; font-weight: 600; color: var(--text); text-decoration: none; letter-spacing: -.03em; }
+.legal-kicker, .legal-date { color: var(--muted); font-size: .8rem; }
+.legal-page h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 10px 0 12px; line-height: 1.15; }
+.legal-tabs { display: flex; flex-wrap: wrap; gap: 8px 26px; margin: 24px 0 32px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.legal-tabs a { font-size: .84rem; text-decoration: none; }
+.legal-tabs a[aria-current="page"] { color: var(--text); text-decoration: underline; text-underline-offset: 8px; }
+.legal-document { max-width: 72ch; }
+.legal-document .legal-intro { font-size: 1.12rem; line-height: 1.7; }
+.legal-document section { margin-top: 34px; }
+.legal-document h2 { font-size: 1.15rem; margin-bottom: 12px; }
+.legal-document p, .legal-document li { font-size: .93rem; line-height: 1.85; overflow-wrap: anywhere; }
+.legal-document p + p, .legal-document li + li { margin-top: 12px; }
+.legal-document ul { padding-left: 22px; }
+@media (max-width: 600px) { .legal-page { padding: 24px 20px 40px; } .legal-header { margin-bottom: 32px; } .legal-footer { margin: 0 16px 24px; padding: 16px 0; } .legal-footer nav { gap: 4px 18px; } }

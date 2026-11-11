@@ -1,14 +1,23 @@
 # QuoteFlow AI
 
-**New: website widget, guest tracking links, unread notifications, and queued email.**
-See [WIDGET_GUIDE.md](WIDGET_GUIDE.md) for setup, local previews, tests, and deployment limits.
+QuoteFlow connects customer requests, AI-assisted clarification, business-controlled
+quotes, PayPal Sandbox checkout, and job updates for small service businesses.
+
+**Judges: start with [JUDGE_SETUP.md](JUDGE_SETUP.md)** for a fresh installation,
+fictional accounts, and provider configuration. See [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
+for the November 11 verified $300 test payment and completed job. Submission copy
+and the recording plan are in [SUBMISSION.md](SUBMISSION.md) and [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md).
+Browser evidence: [live AI review](docs/images/live-ai-review.jpg),
+[completed test payment and job](docs/images/customer-job-completed.jpg).
+Source is available under the [MIT license](LICENSE). Dependencies keep their own licenses.
+The app is a local demo; email previews send nothing and PayPal uses test money.
 
 React/Vite frontend with a Node.js account and quote backend, using SQLite. Requires Node 24 or later. No external account service or database subscription is needed for local development.
 
 ## Start locally
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
@@ -26,12 +35,12 @@ The workspace refreshes every 15 seconds, when focused, or using the Refresh but
 
 - Passwords are salted and hashed using asynchronous scrypt. Plaintext passwords are never stored.
 - Random session tokens use HttpOnly, SameSite cookies. Only hashed tokens are stored in the database. Sessions expire after seven days and are revoked on logout or account recovery.
-- Recovery uses a one-time private code shown on signup. A successful reset revokes all sessions and replaces the code. There is no email sender, email verification, or email reset link yet. Email is a login identifier, not proof of a verified address. Losing both the password and recovery code requires a separate operator recovery process; none is exposed publicly.
+- Recovery uses a one-time private code shown on signup. A successful reset revokes all sessions and replaces the code. Email verification and notification delivery support local previews or a configured email provider; account password recovery uses the recovery code, not an email reset link. An unverified email login is not proof of address ownership. Losing both the password and recovery code requires a separate operator recovery process; none is exposed publicly.
 - API checks enforce account roles and ownership, price validation, and allowed quote status changes. Customer totals and ownership claims are never trusted.
 - Mutations require the configured origin and a custom request header. Cross-origin access is not enabled. Rate limiting applies to authentication attempts; hashing concurrency is bounded.
 - Data lives in `data/quoteflow.sqlite` by default and persists across restarts. Database files are excluded from Git. Back up the database using SQLite's backup mechanism or stop the server before copying its database files.
 - The previous localStorage demo values are left intact. Services can be imported explicitly into a business account. Old unowned demo quotes are not assigned to real accounts automatically. New quotes and services are saved in the database; only the theme remains browser-local.
-- Business AI review has a server integration (see below); live validation requires an API key. PayPal Sandbox checkout is implemented; setup and unverified live-provider limitations are in [PAYPAL_DEMO.md](PAYPAL_DEMO.md).
+- Business AI review has a server integration (see below); live validation requires an API key. PayPal Sandbox checkout is implemented; a real sandbox capture was verified on November 11. Setup and remaining limitations are in [PAYPAL_DEMO.md](PAYPAL_DEMO.md).
 
 ## Tests
 
@@ -99,10 +108,13 @@ A live provider test requires explicit approval to send the chosen test data.
 
 Implementation reference: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
-See WIDGET_GUIDE.md for the latest widget/notification verification. Earlier milestone: 22 tests, lint, and build passed. Browser saved-review
-and editable-reply behavior was checked using an isolated labeled fixture. Live
-fictional-data testing was blocked by provider credentials/access rejection;
-check the private server key/model access before expecting live reviews to work.
+A live fictional-data business review passed on November 11, 2026 using
+gpt-4.1-mini, and the saved result was verified in the business browser. It
+identified missing details and matched the shirt service while the server
+calculated $300. No message, approval, or payment was sent by AI. See
+[AI_VERIFICATION.md](AI_VERIFICATION.md). Earlier credential errors are historical.
+Fresh-source installation, the quote workflow, 46 tests, lint, and build also
+passed. See WIDGET_GUIDE.md for separate widget/notification verification.
 
 ## Customer assistant and request conversations
 

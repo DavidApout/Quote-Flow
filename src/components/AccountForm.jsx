@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { LegalNotice } from './LegalLinks';
 
 export default function AccountForm({ onSignedIn }) {
   const [mode, setMode] = useState('login');
@@ -31,6 +32,7 @@ export default function AccountForm({ onSignedIn }) {
         {mode === 'recover' && <><label htmlFor="recovery-code">Recovery code</label><input id="recovery-code" name="recoveryCode" autoComplete="off" required maxLength={100} /></>}
         <label htmlFor="account-password">{mode === 'recover' ? 'New password' : 'Password'}</label><input id="account-password" name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? undefined : 15} maxLength={128} required />
         {mode !== 'login' && <p className="muted">Use 15–128 characters. A memorable passphrase works well.</p>}
+        {mode === 'register' && <LegalNotice account />}
         <button type="submit">{busy ? 'Please wait…' : mode === 'register' ? 'Create account' : mode === 'recover' ? 'Reset password' : 'Sign in'}</button>
       </fieldset>
       {error && <p className="error" role="alert">{error}</p>}
