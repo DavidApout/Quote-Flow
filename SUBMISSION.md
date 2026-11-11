@@ -88,7 +88,7 @@ offering live payments to multiple businesses.
 
 ## Required links and access — complete before submitting
 
-- Public repository: https://github.com/DavidApout/Quote-Flow (public access not yet verified).
+- Public repository: https://github.com/DavidApout/Quote-Flow (currently private; public visibility confirmation pending).
 - Public YouTube demonstration under 3 minutes: NOT YET RECORDED/UPLOADED.
 - Functional demo access: JUDGE_SETUP.md; arrange any necessary dedicated test
   access in the submission's testing instructions, without publishing secrets.
@@ -99,7 +99,8 @@ offering live payments to multiple businesses.
 - [x] PayPal Sandbox create/capture demonstrated with a persisted receipt.
 - [x] Source includes an MIT license file.
 - [x] Successful live business AI review verified in the application.
-- [ ] Latest source committed/pushed and repository accessible while signed out.
+- [x] Latest source committed and pushed to the repository.
+- [ ] Repository changed to public and accessible while signed out.
 - [x] Fresh source install, seeding, quote workflow, 46 tests, lint, and build verified.
 - [ ] Judge-specific external provider access arranged and documented.
 - [ ] Video recorded, public on YouTube, under 3 minutes, and linked on Devpost.

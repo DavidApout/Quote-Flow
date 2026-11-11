@@ -133,8 +133,8 @@ service and that business's catalog names/IDs to the existing provider integrati
 It returns one suggested question without saving a request, inventing a price,
 or approving anything. Customers can answer and explicitly add it to their summary.
 There are 10 attempts per 15 minutes per customer, per server process. Provider
-errors leave the editable summary usable. No new live provider calls were made
-for this feature; previous credential/access rejection remains unresolved.
+errors leave the editable summary usable. This optional customer follow-up has not been separately tested live. The
+business AI review passed a live test on November 11; see AI_VERIFICATION.md.
 
 Both parties can open **Messages & questions** on a submitted request. Business
 owners can write a question or send their edited AI reply. Customers can reply from
