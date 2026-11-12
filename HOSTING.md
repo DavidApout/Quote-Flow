@@ -14,11 +14,18 @@ The homepage, unauthenticated session API, and privacy page returned HTTP 200.
 The selected server is $7/month plus a 1 GB disk at $0.25/month, before taxes
 or additional usage. Automatic deployments are off.
 
-This deployment starts with a fresh database. Local demo accounts and records
-were not uploaded. Hosted accounts/catalog setup and a hosted end-to-end
-transaction remain to be completed. AI and PayPal credentials are not yet
-configured here; email is disabled. The local demo's verified provider results
-must not be presented as verification of the hosted integrations.
+The deployment uses a fresh database; no local customer records were uploaded.
+Separate hosted business/customer accounts, three sample services, and a fictional
+12-shirt request were created. Both accounts and the $300 request persisted
+through a Render restart. Business approval and customer acceptance passed.
+
+OpenAI and PayPal Sandbox credentials are configured in private server settings.
+One approved live AI review succeeded, identifying six missing details including
+deadline, logo artwork, placement, shirt style, printing method, and fulfillment.
+PayPal created the hosted $300 test checkout successfully. Buyer approval and
+capture are still pending: this is not yet a verified hosted payment receipt.
+Email remains disabled. Hosted passwords and recovery codes are kept outside
+this repository and should be shared privately with intended demo reviewers.
 
 ## Deployment
 

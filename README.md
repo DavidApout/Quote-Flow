@@ -1,8 +1,9 @@
 # QuoteFlow AI
 
-**Public demo:** https://quoteflow-ai-demo.onrender.com — fresh hosted installation.
-Hosted accounts/catalog setup and AI/PayPal configuration are still pending;
-email is disabled. Local demo credentials do not sign into this deployment.
+**Public demo:** https://quoteflow-ai-demo.onrender.com — hosted fictional-data demo.
+Separate hosted accounts and sample services are configured. A live AI review passed;
+PayPal test checkout is prepared, with buyer approval and capture still pending.
+Email is disabled. Local demo credentials do not sign into this deployment.
 See [hosting status](HOSTING.md) for verified behavior and limitations.
 
 QuoteFlow connects customer requests, AI-assisted clarification, business-controlled
