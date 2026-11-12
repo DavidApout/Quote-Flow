@@ -1,3 +1,4 @@
+import RefundPanel from './RefundPanel';
 import { useEffect, useRef, useState } from 'react';
 
 export default function PaymentPanel({ quoteId, accountId, token, business = false }) {
@@ -45,5 +46,6 @@ export default function PaymentPanel({ quoteId, accountId, token, business = fal
         {payment.state !== 'not_started' && <button className="secondary" disabled={busy} onClick={() => act('check')}>{busy ? 'Checking…' : 'Check payment status'}</button>}
       </>}
     </>}
+    {payment?.state === 'paid' && <RefundPanel quoteId={quoteId} accountId={accountId} token={token} business={business} amount={payment.amount} />}
   </section>;
 }

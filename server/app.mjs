@@ -1,3 +1,4 @@
+import { createRefunds } from './refunds.mjs';
 import { createFulfillment } from './fulfillment.mjs';
 import { createAttachments } from './attachments.mjs';
 import { createPayments } from './paypal.mjs';
@@ -97,6 +98,14 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
   const attachments = createAttachments({ db });
   const engagement = createEngagement({ db, attachments, origin, secure, now, limit, transaction, bodyOf, send, dummyHash, mailMode, mailKey, mailFrom, mailTransport, mailWebhookSecret });
   const payments = createPayments({ db, origin, now, transaction, quoteEvent: engagement.quoteEvent, config: paypalConfig, transport: paypalTransport });
+  const refunds = createRefunds({ db, now, transaction, quoteEvent: engagement.quoteEvent, config: paypalConfig, transport: paypalTransport });
+  async function refundRoute(req,res,id,userId,method) {
+    const quote=db.prepare("SELECT * FROM quotes WHERE id=? AND (business_id=? OR customer_id=?)").get(id,userId,userId);
+    if(!quote) fail(404,"Request not found.");
+    if(method==="GET") return send(res,200,{refund:refunds.info(id)});
+    limit(`refund:${id}`,20);
+    return send(res,200,{refund:await refunds.act(quote,userId,await bodyOf(req))});
+  }
   const fulfillmentRoute = createFulfillment({ db, transaction, quoteEvent: engagement.quoteEvent, bodyOf, send });
   async function jobRoute(req,res,id,userId,method) {
     const quote=db.prepare('SELECT * FROM quotes WHERE id=? AND (business_id=? OR customer_id=?)').get(id,userId,userId);
@@ -148,6 +157,10 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         if (!['create', 'capture', 'check'].includes(body.action)) fail(400, 'Choose a payment action.');
         limit(`payment:${quote.id}`, 30);
         return send(res, 200, await payments.act(quote, body.action));
+      }
+      if (path === '/api/track/refund' && ['GET','POST'].includes(method)) {
+        const guest=engagement.authorizeGuest(req);
+        return await refundRoute(req,res,guest.quote_id,guest.user_id,method);
       }
       if (path === '/api/track/fulfillment' && ['GET','POST','PATCH'].includes(method)) {
         const guest = engagement.authorizeGuest(req);
@@ -203,6 +216,8 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       if (!user) fail(401, 'Please sign in again.');
       if (req.headers['x-quoteflow-user'] && req.headers['x-quoteflow-user'] !== user.id) fail(401, 'Your account changed. Please sign in again.');
       if (await engagement.accountRoutes(req, res, path, method, user)) return;
+      const refundMatch=path.match(/^\/api\/quotes\/([\w-]+)\/refund$/);
+      if(refundMatch && ['GET','POST'].includes(method)) return await refundRoute(req,res,refundMatch[1],user.id,method);
       const fulfillmentMatch = path.match(/^\/api\/quotes\/([\w-]+)\/fulfillment$/);
       if (fulfillmentMatch && ['GET','POST','PATCH'].includes(method)) return await fulfillmentRoute(req,res,fulfillmentMatch[1],user.id,method);
       const jobMatch = path.match(/^\/api\/quotes\/([\w-]+)\/job$/);

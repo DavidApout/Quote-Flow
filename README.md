@@ -177,3 +177,19 @@ reviewing, or resolved; both sides can use the existing conversation to discuss 
 Updates persist in SQLite and generate in-app notifications. Hosted email remains
 disabled. This does not open a PayPal dispute or process/confirm any refund.
 Issue-specific photo uploads and automatic carrier updates are not implemented.
+
+## Test-payment refunds
+
+Customers can request a full refund from a paid request. Only that business can
+approve or decline it. Approval sends a PayPal Sandbox refund using the saved
+capture and amount, with a stable request key and a processing lock. QuoteFlow
+marks completion only after reading the refund back from PayPal and verifying
+its ID, USD amount, and completed status. Receipts include refund status.
+
+Pending refunds require the business to check status. Ambiguous submissions stop
+retrying after 30 minutes and require manual PayPal review; they must not be
+replaced blindly. Partial refunds, automatic webhooks, formal dispute handling,
+and support-team refund authority are not implemented. The original capture
+remains historical proof of payment; the separate refund record shows its return.
+Automated refund tests use a simulated PayPal provider; no live refund test has
+been performed or existing demo payment refunded during implementation.
