@@ -5,6 +5,7 @@ export default function PaymentPanel({ quoteId, accountId, token, business = fal
   const [payment, setPayment] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [copyNotice, setCopyNotice] = useState('');
   const pending = useRef(false);
   const path = token ? '/api/track/payment' : `/api/quotes/${quoteId}/payment`;
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function PaymentPanel({ quoteId, accountId, token, business = fal
         {payment.state !== 'not_started' && <button className="secondary" disabled={busy} onClick={() => act('check')}>{busy ? 'Checking…' : 'Check payment status'}</button>}
       </>}
     </>}
+    {payment?.captureId && <details className="paypal-help"><summary>Need help through PayPal?</summary><p>Your original test-payment reference:</p><code>{payment.captureId}</code><button type="button" className="secondary" onClick={async () => { try { await navigator.clipboard.writeText(payment.captureId); setCopyNotice('Payment reference copied.'); } catch { setCopyNotice('Copy the reference shown above manually.'); } }}>Copy payment reference</button><p role="status">{copyNotice}</p><a href="https://www.sandbox.paypal.com/disputes/" target="_blank" rel="noopener noreferrer">Open PayPal Sandbox Resolution Center ↗</a><p className="muted">Use your PayPal test account. QuoteFlow reports do not open PayPal disputes, and decisions are not synced here. This link does not submit a case.</p></details>}
     {payment?.state === 'paid' && <RefundPanel quoteId={quoteId} accountId={accountId} token={token} business={business} amount={payment.amount} />}
   </section>;
 }

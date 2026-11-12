@@ -2,7 +2,7 @@
 
 **Public demo:** https://quoteflow-ai-demo.onrender.com — hosted fictional-data demo.
 Separate hosted accounts and sample services are configured. A live AI review passed;
-PayPal test checkout is prepared, with buyer approval and capture still pending.
+The hosted $300 PayPal test payment is confirmed. Live refund verification is pending.
 Email is disabled. Local demo credentials do not sign into this deployment.
 See [hosting status](HOSTING.md) for verified behavior and limitations.
 

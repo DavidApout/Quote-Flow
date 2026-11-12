@@ -25,7 +25,12 @@ export function sandboxTransport({ clientId, secret, fetcher = fetch }) {
       }
       const response = await fetcher(`${root}${path}`, { method, redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(requestId ? { 'PayPal-Request-Id': requestId } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       if (response.status === 401) { token = null; until = 0; }
-      if (!response.ok) fail(502, 'PayPal could not complete this step. Check payment status before trying again.');
+      if (!response.ok) {
+        const problem = await response.json().catch(() => ({}));
+        const code = problem.details?.[0]?.issue || problem.name;
+        const safeCode = typeof code === 'string' && /^[A-Z_]{3,80}$/.test(code) ? ` (${code})` : '';
+        fail(502, `PayPal could not complete this step${safeCode}. Check payment status before trying again.`);
+      }
       return await response.json();
     } catch (error) {
       if (error.status) throw error;

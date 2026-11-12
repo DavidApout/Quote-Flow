@@ -22,8 +22,9 @@ through a Render restart. Business approval and customer acceptance passed.
 OpenAI and PayPal Sandbox credentials are configured in private server settings.
 One approved live AI review succeeded, identifying six missing details including
 deadline, logo artwork, placement, shirt style, printing method, and fulfillment.
-PayPal created the hosted $300 test checkout successfully. Buyer approval and
-capture are still pending: this is not yet a verified hosted payment receipt.
+PayPal created the hosted $300 test checkout successfully. The hosted customer page confirmed a $300 capture on November 12 at 11:28 a.m.
+Shipping, issue reports, and full-refund requests are deployed. Refund logic has
+automated provider tests; an actual PayPal test refund remains unverified.
 Email remains disabled. Hosted passwords and recovery codes are kept outside
 this repository and should be shared privately with intended demo reviewers.
 

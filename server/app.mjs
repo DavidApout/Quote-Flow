@@ -290,7 +290,7 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         if (businessId && !businesses.some(item => item.id === businessId)) fail(404, 'Business not found.');
         const services = db.prepare('SELECT id, name, cents / 100.0 AS price FROM services WHERE business_id = ? ORDER BY rowid').all(businessId);
         const quotes = db.prepare(`SELECT q.id, q.name, q.request, q.quantity, q.cents / 100.0 AS price,
-          q.cents * q.quantity / 100.0 AS total, q.status, EXISTS(SELECT 1 FROM sandbox_payments p WHERE p.quote_id=q.id AND p.state='paid') AS sandboxPaid, q.business_id AS businessId,
+          q.cents * q.quantity / 100.0 AS total, q.status, EXISTS(SELECT 1 FROM sandbox_payments p WHERE p.quote_id=q.id AND p.state='paid') AS sandboxPaid, EXISTS(SELECT 1 FROM refund_requests r WHERE r.quote_id=q.id AND r.state='completed') AS sandboxRefunded, q.business_id AS businessId,
           b.business_name AS businessName, c.name AS customerName, c.id AS customerId,
           COALESCE(j.stage, 'not_started') AS jobStage, COALESCE(j.requested, '') AS jobRequested,
           COALESCE(j.agreed, '') AS jobAgreed FROM quotes q JOIN users b ON b.id = q.business_id

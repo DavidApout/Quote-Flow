@@ -238,3 +238,10 @@ footer { font-size: .65rem; margin-top: 36px; padding-top: 22px; }
   .brand { gap: 10px; }
   .brand-logo { flex-basis: 48px; width: 48px; height: 48px; background-size: contain; background-position: center; border-radius: 14px; }
 }
+
+.paypal-help { margin-top: 20px; }
+.paypal-help code { display: block; overflow-wrap: anywhere; margin: 12px 0; }
+.job-details, .payment-panel, .paypal-help { min-width: 0; overflow-wrap: anywhere; }
+.job-details input, .job-details select, .job-details textarea { max-width: 100%; min-width: 0; }
+.job-details button, .paypal-help button { white-space: normal; max-width: 100%; }
+@media (max-width: 480px) { .job-details button, .paypal-help button { min-height: 44px; } }
