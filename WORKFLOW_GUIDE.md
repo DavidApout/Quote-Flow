@@ -18,6 +18,14 @@ and visible. Unsaved date/status edits are preserved during refresh. Use Reset
 to saved details to discard those edits, or Refresh job details for an immediate
 check. Changes create notifications and use the email queue.
 
+In Request inbox, combine search and Status with Due date: Due soon includes
+today through seven days ahead; Overdue means before today. Filters use the
+business's agreed date and your device's local date. Requests without an agreed
+date, completed jobs, and rejected or declined quotes do not appear in due
+filters. Saving job details refreshes the inbox immediately; choose All dates
+to see requests outside the selected range. These are on-screen filters, not
+scheduled reminder emails.
+
 Download quote / receipt creates a standalone HTML document with prices, dates,
 request details, separate quote and human-readable job statuses, and, if confirmed,
 sandbox receipt information. Open the file in a browser and use Print → Save as PDF. It is not a generated PDF attachment,
@@ -83,6 +91,16 @@ A completed-demo backup is saved at `data/backups/final-demo-completed-2026-11-1
    the business, accept it as the customer, and use the sandbox buyer account
    to approve a new test payment. Then advance each job stage as the business.
    A completed job cannot be moved backward; keep this finished example intact.
+
+## Due-date filter verification — November 11, 2026
+
+The updated suite passes 51/51 tests, including due-date boundaries, daylight
+saving and year transitions, missing dates, completed/declined/rejected work,
+and participant-only access to job dates. Lint and production build pass.
+Browser checks in a separate fictional database verified Due soon, Overdue,
+instant removal after saving a later date, keyboard focus returning to the
+filter, and dashboard behavior after an empty result. At 390px wide, the inbox
+controls stack without horizontal overflow. The saved paid demo was preserved.
 
 ## Verification and remaining limits
 

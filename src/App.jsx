@@ -7,6 +7,7 @@ import './workspace.css';
 import Icon from './components/Icon';
 import { readSaved } from './lib/storage';
 import { api } from './lib/api';
+import { dueState, formatAgreedDate, localCalendarDate, matchesDueFilter } from './lib/dueDates';
 import AccountForm, { RecoveryCode } from './components/AccountForm';
 import RequestProgress from './components/RequestProgress';
 import PaymentPanel from './components/PaymentPanel';
@@ -28,6 +29,14 @@ function Review({ quote, onUpdate, busy }) {
   return <form onSubmit={event => { event.preventDefault(); const amount = Number(price); if (price.trim() && Number.isFinite(amount) && amount >= 0 && amount <= 1000000) onUpdate({ price: Math.round(amount * 100) / 100, status: 'approved' }); }}><fieldset disabled={busy}><label htmlFor={`price-${quote.id}`}>Final unit price (USD)</label><input id={`price-${quote.id}`} type="number" min="0" max="1000000" step="0.01" required value={price} onChange={event => setPrice(event.target.value)} /><p className="muted">Final total: {price.trim() && Number.isFinite(Number(price)) ? `$${(Math.round(Number(price) * 100) * quote.quantity / 100).toFixed(2)}` : 'Enter a price'} · {quote.quantity} units</p><div className="actions"><button>Approve quote</button><button type="button" className="secondary" onClick={() => onUpdate({ status: 'rejected' })}>Reject</button></div></fieldset></form>;
 }
 
+function DueDateSummary({ quote, today }) {
+  const date = formatAgreedDate(quote.job?.agreed);
+  if (!date) return <p className="job-due muted">No agreed date</p>;
+  const state = dueState(quote, today);
+  const label = { overdue: 'Overdue', today: 'Due today', soon: 'Due soon' }[state];
+  return <p className={`job-due due-${state}`}><span>Agreed date: <time dateTime={quote.job.agreed}>{date}</time></span>{label && <strong>{label}</strong>}{quote.job?.stage === 'completed' && <span>Completed</span>}</p>;
+}
+
 function Workspace({ user, onSessionExpired }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [data, setData] = useState(null);
@@ -47,10 +56,13 @@ function Workspace({ user, onSessionExpired }) {
   const [view, setView] = useState(() => new URLSearchParams(window.location.search).has('quote') ? 'inbox' : 'dashboard');
   const [focusedQuote, setFocusedQuote] = useState(() => new URLSearchParams(window.location.search).get('quote') || '');
   const [filter, setFilter] = useState('all');
+  const [dueFilter, setDueFilter] = useState('all');
+  const [today, setToday] = useState(localCalendarDate);
   const [customerMode, setCustomerMode] = useState('guided');
   const [search, setSearch] = useState('');
   const visibleQuotes = [...(data?.quotes || [])].reverse().filter(item =>
     (!focusedQuote || item.id === focusedQuote) && (filter === 'all' || (filter === 'paid' ? !!item.sandboxPaid : filter === 'unpaid' ? item.status === 'accepted' && !item.sandboxPaid : item.status === filter)) &&
+    (!business || matchesDueFilter(item, dueFilter, today)) &&
     `${item.name} ${item.customerName} ${item.request}`.toLowerCase().includes(search.toLowerCase()));
   const customerUrl = `${window.location.origin}/request?business=${encodeURIComponent(user.id)}`;
 
@@ -61,7 +73,7 @@ function Workspace({ user, onSessionExpired }) {
   const refresh = useCallback(async () => {
     const current = ++sequence.current;
     const result = await api(`/workspace?businessId=${encodeURIComponent(businessId)}`, { accountId: user.id });
-    if (current === sequence.current) setData(result);
+    if (current === sequence.current) { setData(result); setToday(localCalendarDate()); }
   }, [businessId, user.id]);
   useEffect(() => {
     let alive = true;
@@ -95,11 +107,11 @@ function Workspace({ user, onSessionExpired }) {
     setQuote({ name: custom ? 'Custom request' : service.name, request: request.trim(), quantity: count, price: custom ? null : service.price, total: custom ? null : Math.round(service.price * 100) * count / 100 });
     setError(''); setNotice('');
   }
-  if (settingsOpen) return <SettingsPage user={user} onSessionExpired={onSessionExpired} onBack={() => setSettingsOpen(false)} onOpenRequest={id => { setSettingsOpen(false); setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); refresh().catch(handleError); }} />;
+  if (settingsOpen) return <SettingsPage user={user} onSessionExpired={onSessionExpired} onBack={() => setSettingsOpen(false)} onOpenRequest={id => { setSettingsOpen(false); setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); setDueFilter('all'); refresh().catch(handleError); }} />;
   return <>
     <div className="section-heading workspace-heading"><div><p className="eyebrow">{business ? user.businessName : `WELCOME, ${user.name}`}</p><h2>{business ? view === 'services' ? 'Services' : view === 'inbox' ? 'Requests' : view === 'widget' ? 'Website widget' : 'Overview' : 'Your next project.'}</h2><p className="muted">{business ? `${data?.quotes.filter(item => item.status === 'pending').length ?? 0} requests waiting for review` : 'Choose a business and share your idea.'}</p></div><div className="workspace-tools"><button className="secondary" onClick={() => setSettingsOpen(true)}><Icon name="settings" />Settings</button><button disabled={busy} className="secondary" onClick={() => { setError(''); refresh().catch(handleError); }}><Icon name="refresh" />Refresh</button></div></div>
     {error && <p className="error feedback" role="alert">{error}</p>}<p className="notice" role="status">{notice}</p>
-    <NotificationCenter user={user} onSessionExpired={onSessionExpired} onOpen={id => { setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); refresh().catch(handleError); }} />
+    <NotificationCenter user={user} onSessionExpired={onSessionExpired} onOpen={id => { setView('inbox'); setFocusedQuote(id || ''); setSearch(''); setFilter('all'); setDueFilter('all'); refresh().catch(handleError); }} />
     {focusedQuote && <button className="text-button" onClick={() => setFocusedQuote('')}>Show all requests</button>}
     {!data ? <p className="muted" role="status">{error ? 'Your workspace could not load.' : 'Loading your workspace…'}</p> : <>
       {!business && <div className="business-picker"><label htmlFor="choose-business">Business</label><select id="choose-business" disabled={busy || attachmentBusy} value={data.businessId} onChange={event => { setBusinessId(event.target.value); setAttachments([]); setQuote(null); setData(null); setSelectedServiceId(''); setRequest(''); setQuantity(1); setCustomerMode('guided'); clearQuote(); }}><option value="" disabled>Choose a business</option>{data.businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
@@ -113,7 +125,7 @@ function Workspace({ user, onSessionExpired }) {
             { label: 'Awaiting acceptance', value: data.quotes.filter(q => q.status === 'approved').length, detail: 'Approved quotes with the customer', filter: 'approved', icon: '→' },
             { label: 'Awaiting payment', value: data.quotes.filter(q => q.status === 'accepted' && !q.sandboxPaid).length, detail: 'Accepted · no confirmed sandbox payment', filter: 'unpaid', icon: '◷' },
             { label: 'Sandbox payments', value: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.quotes.filter(q => q.sandboxPaid).reduce((sum, q) => sum + q.total, 0)), detail: `${data.quotes.filter(q => q.sandboxPaid).length} confirmed · test money only`, filter: 'paid', icon: '✓' },
-          ].map(card => <button key={card.filter} className={`metric-card metric-${card.filter}`} onClick={() => { setFilter(card.filter); setFocusedQuote(''); setSearch(''); setView('inbox'); }}><span className="metric-top"><span>{card.label}</span></span><strong>{card.value}</strong><small>{card.detail}</small><span className="metric-link">View requests <span aria-hidden="true">↗</span></span></button>)}</div>
+          ].map(card => <button key={card.filter} className={`metric-card metric-${card.filter}`} onClick={() => { setFilter(card.filter); setDueFilter('all'); setFocusedQuote(''); setSearch(''); setView('inbox'); }}><span className="metric-top"><span>{card.label}</span></span><strong>{card.value}</strong><small>{card.detail}</small><span className="metric-link">View requests <span aria-hidden="true">↗</span></span></button>)}</div>
           <section className="share-panel"><div><h3>Your request page</h3><p className="muted">Share this page with customers. Local demo links work on this computer only. For no-account requests, use Website widget.</p><a href={customerUrl}>{customerUrl}</a></div><button className="secondary" onClick={async () => { try { await navigator.clipboard.writeText(customerUrl); setNotice('Customer link copied.'); } catch { setError('Could not copy. Select and copy the link above.'); } }}>Copy link</button></section>
         </>}
       </>}
@@ -126,19 +138,20 @@ function Workspace({ user, onSessionExpired }) {
           {quote && <><QuoteCard quote={quote} /><LegalNotice /><button disabled={busy || attachmentBusy} className="submit-request" onClick={async () => { if (await mutate('/quotes', 'POST', { businessId: data.businessId, serviceId: selectedServiceId, request: quote.request, quantity: quote.quantity, attachments }, 'Request sent. The business will review your quote.')) { setQuote(null); setAttachments([]); } }}>{busy ? 'Sending…' : 'Submit for approval'}</button></>}
         </>}</section>}
         <section className={`panel requests-panel ${business && view === 'dashboard' ? 'dashboard-requests' : ''}`} hidden={business && ['services', 'widget'].includes(view)}><div className="request-heading"><h2>{business ? (view === 'dashboard' ? 'Recent requests' : 'Request inbox') : 'Your requests'}</h2>{business && view === 'dashboard' && <button className="text-button" onClick={() => setView('inbox')}>View all →</button>}</div>
-          {business && view === 'inbox' && <div className="inbox-tools"><div><label htmlFor="search">Search requests</label><input id="search" type="search" placeholder="Customer, service, or details" value={search} onChange={e => setSearch(e.target.value)} /></div><div><label htmlFor="status-filter">Status</label><select id="status-filter" value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'pending', 'approved', 'accepted', 'unpaid', 'paid', 'rejected', 'declined'].map(status => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status === 'pending' ? 'Pending review' : status === 'unpaid' ? 'Awaiting payment' : status === 'paid' ? 'Paid · Sandbox' : status}</option>)}</select></div></div>}
-          {data.quotes.length > 0 && visibleQuotes.length === 0 && <p className="empty-state">No requests match your search or status filter.</p>}
+          {business && view === 'inbox' && <div className="inbox-tools"><div><label htmlFor="search">Search requests</label><input id="search" type="search" placeholder="Customer, service, or details" value={search} onChange={e => setSearch(e.target.value)} /></div><div><label htmlFor="status-filter">Status</label><select id="status-filter" value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'pending', 'approved', 'accepted', 'unpaid', 'paid', 'rejected', 'declined'].map(status => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status === 'pending' ? 'Pending review' : status === 'unpaid' ? 'Awaiting payment' : status === 'paid' ? 'Paid · Sandbox' : status}</option>)}</select></div><div><label htmlFor="due-filter">Due date</label><select id="due-filter" value={dueFilter} onChange={event => { setDueFilter(event.target.value); setFocusedQuote(''); }} aria-describedby="due-filter-help"><option value="all">All dates</option><option value="soon">Due soon</option><option value="overdue">Overdue</option></select></div><p id="due-filter-help" className="muted due-filter-help">Based on agreed dates and your device’s local date. Due soon includes today through the next 7 days. Completed, rejected, and declined requests are excluded from due filters.</p></div>}
+          {(!business || view === 'inbox') && data.quotes.length > 0 && visibleQuotes.length === 0 && <p className="empty-state">No requests match your search, status, or due-date filters.</p>}
           {data.quotes.length === 0 && <div className="empty-state"><span aria-hidden="true">↗</span><h3>A little space for big ideas.</h3><p className="muted">Submitted requests and their progress will appear here.</p></div>}
           <div className="request-list">{(business && view === 'dashboard' ? [...data.quotes].reverse().slice(0, 3) : visibleQuotes).map(item => <article className="request-card" key={item.id}>
             <div className="request-heading"><div className="request-title"><div><h3>{item.name}</h3><p className="muted">{business ? item.customerName : item.businessName}</p></div></div><span className={`status ${item.sandboxPaid ? 'paid' : item.status}`}>{item.sandboxPaid ? 'Paid · Sandbox' : item.status === 'pending' ? 'Pending review' : item.status}</span></div>
             <p className="details muted">{item.request || 'No additional details'}</p>
             <div className="request-meta"><p className="muted request-reference">REQUEST #{item.id.slice(0, 8)}</p><p className="request-total">{item.total === null ? 'Price to be confirmed' : `$${item.total.toFixed(2)}`} <span className="muted">/ {item.quantity} units</span></p></div>
+            {business && <DueDateSummary quote={item} today={today} />}
             <RequestProgress status={item.status} paid={!!item.sandboxPaid} />
             <details className="request-workspace" open={focusedQuote === item.id}><summary><span>{business && item.status === 'pending' ? 'Review this request' : !business && item.status === 'accepted' && !item.sandboxPaid ? 'View checkout & details' : !business && item.status === 'approved' ? 'Review approved quote' : 'View request details'}<small>Files, messages & job updates</small></span><Icon name="arrow" /></summary><div className="request-workspace-body">
             <details className="participant-profile"><summary>View {business ? 'customer' : 'business'} profile</summary><ProfileCard profileId={business ? item.customerId : item.businessId} accountId={user.id} compact /></details>
             {item.status === 'accepted' && <QuoteRating quoteId={item.id} accountId={user.id} business={business} />}
             <DownloadQuote quote={item} accountId={user.id} />
-            <JobDetails quote={item} accountId={user.id} business={business} />
+            <JobDetails quote={item} accountId={user.id} business={business} onSaved={job => { const hidden = business && view === 'inbox' && !matchesDueFilter({ ...item, job }, dueFilter, today); setNotice(hidden ? 'Job details saved. This request no longer matches the due-date filter. Choose All dates to see it.' : 'Job details saved.'); if (hidden) document.getElementById('due-filter')?.focus(); refresh().catch(handleError); }} />
             <RequestAttachments quoteId={item.id} accountId={user.id} />
             <RequestDiscussion quote={item} user={user} onSessionExpired={onSessionExpired} />
             {business && item.status === 'pending' && <Review quote={item} busy={busy} onUpdate={changes => mutate(`/quotes/${item.id}`, 'PATCH', changes, changes.status === 'approved' ? 'Quote approved.' : 'Quote rejected.')} />}

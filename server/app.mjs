@@ -268,8 +268,12 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         const services = db.prepare('SELECT id, name, cents / 100.0 AS price FROM services WHERE business_id = ? ORDER BY rowid').all(businessId);
         const quotes = db.prepare(`SELECT q.id, q.name, q.request, q.quantity, q.cents / 100.0 AS price,
           q.cents * q.quantity / 100.0 AS total, q.status, EXISTS(SELECT 1 FROM sandbox_payments p WHERE p.quote_id=q.id AND p.state='paid') AS sandboxPaid, q.business_id AS businessId,
-          b.business_name AS businessName, c.name AS customerName, c.id AS customerId FROM quotes q JOIN users b ON b.id = q.business_id
-          JOIN users c ON c.id = q.customer_id WHERE q.${user.role === 'business' ? 'business_id' : 'customer_id'} = ? ORDER BY q.created, q.rowid`).all(user.id);
+          b.business_name AS businessName, c.name AS customerName, c.id AS customerId,
+          COALESCE(j.stage, 'not_started') AS jobStage, COALESCE(j.requested, '') AS jobRequested,
+          COALESCE(j.agreed, '') AS jobAgreed FROM quotes q JOIN users b ON b.id = q.business_id
+          JOIN users c ON c.id = q.customer_id LEFT JOIN jobs j ON j.quote_id = q.id
+          WHERE q.${user.role === 'business' ? 'business_id' : 'customer_id'} = ? ORDER BY q.created, q.rowid`).all(user.id)
+          .map(({ jobStage, jobRequested, jobAgreed, ...quote }) => ({ ...quote, job: { stage: jobStage, requested: jobRequested, agreed: jobAgreed } }));
         return send(res, 200, { businesses, businessId, services, quotes });
       }
       if (path === '/api/services/import' && method === 'POST') {

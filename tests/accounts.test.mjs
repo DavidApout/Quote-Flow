@@ -424,6 +424,46 @@ test('production requires verified business email, forbids previews and limits f
   assert.equal((await app.request(`/public/businesses/${owner.body.user.id}`)).status, 404);
 });
 
+test("workspace exposes only each participant's job dates with defaults for unscheduled quotes", async t => {
+  const app = await start(); t.after(app.stop);
+  const owner = await register(app.request, 'due-owner@example.test', 'business');
+  const buyer = await register(app.request, 'due-buyer@example.test');
+  const otherOwner = await register(app.request, 'due-other-owner@example.test', 'business');
+  const stranger = await register(app.request, 'due-stranger@example.test');
+  const createQuote = async (business, customer) => {
+    const result = await app.request('/quotes', { method: 'POST', cookie: customer.cookie, body: { businessId: business.body.user.id, serviceId: 'custom', quantity: 1, request: 'Scheduled custom work' } });
+    assert.equal(result.status, 201);
+    return result.body.id;
+  };
+  const quoteId = await createQuote(owner, buyer);
+  const otherQuoteId = await createQuote(otherOwner, stranger);
+  for (const participant of [owner, buyer]) {
+    const workspace = await app.request('/workspace', { cookie: participant.cookie });
+    assert.equal(workspace.status, 200);
+    assert.deepEqual(workspace.body.quotes.map(quote => quote.id), [quoteId]);
+    assert.deepEqual(workspace.body.quotes[0].job, { stage: 'not_started', requested: '', agreed: '' });
+  }
+  const save = async (id, participant, body) => {
+    const result = await app.request(`/quotes/${id}/job`, { method: 'PATCH', cookie: participant.cookie, body });
+    assert.equal(result.status, 200);
+  };
+  await save(quoteId, buyer, { requested: '2026-11-20' });
+  await save(quoteId, owner, { agreed: '2026-11-19', stage: 'not_started' });
+  await save(otherQuoteId, stranger, { requested: '2026-12-20' });
+  await save(otherQuoteId, otherOwner, { agreed: '2026-12-19', stage: 'not_started' });
+  for (const participant of [owner, buyer]) {
+    const workspace = await app.request(`/workspace?businessId=${otherOwner.body.user.id}`, { cookie: participant.cookie });
+    assert.deepEqual(workspace.body.quotes.map(quote => quote.id), [quoteId]);
+    assert.deepEqual(workspace.body.quotes[0].job, { stage: 'not_started', requested: '2026-11-20', agreed: '2026-11-19' });
+  }
+  for (const participant of [otherOwner, stranger]) {
+    const workspace = await app.request(`/workspace?businessId=${owner.body.user.id}`, { cookie: participant.cookie });
+    assert.deepEqual(workspace.body.quotes.map(quote => quote.id), [otherQuoteId]);
+    assert.deepEqual(workspace.body.quotes[0].job, { stage: 'not_started', requested: '2026-12-20', agreed: '2026-12-19' });
+    assert.equal((await app.request(`/quotes/${quoteId}/job`, { cookie: participant.cookie })).status, 404);
+  }
+});
+
 test('payment API enforces customer ownership, accepted pricing, CSRF, and business receipts', async t => {
   const config = { businessId: 'configured-after-registration', merchantId: 'MERCHANT123' };
   let payload, paid = false, captures = 0;
@@ -464,6 +504,11 @@ test('payment API enforces customer ownership, accepted pricing, CSRF, and busin
     const result=await app.request(jobPath,{method:'PATCH',cookie:owner.cookie,body:{stage,agreed:'2026-12-13'}});
     assert.equal(result.status,200); assert.equal(result.body.stage,stage);
     assert.equal((await app.request(jobPath,{cookie:buyer.cookie})).body.stage,stage);
+    for (const participant of [owner, buyer]) {
+      const workspace = await app.request('/workspace', { cookie: participant.cookie });
+      assert.deepEqual(workspace.body.quotes.find(quote => quote.id === quotePath.split('/').at(-1)).job,
+        { stage, requested: '2026-12-12', agreed: '2026-12-13' });
+    }
   }
   assert.equal((await app.request(jobPath,{cookie:buyer.cookie})).body.requested,'2026-12-12');
 

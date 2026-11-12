@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const stageLabels = { not_started: 'Not started', in_progress: 'In progress', ready: 'Ready for pickup', completed: 'Completed' };
 const formValues = (job, business) => ({ date: business ? job.agreed : job.requested, stage: job.stage });
 
-function JobDetailsForm({ quote, accountId, token, business }) {
+function JobDetailsForm({ quote, accountId, token, business, onSaved }) {
   const [job, setJob] = useState(null);
   const [draft, setDraft] = useState({ date: '', stage: 'not_started' });
   const [dirty, setDirty] = useState(false);
@@ -85,6 +85,7 @@ function JobDetailsForm({ quote, accountId, token, business }) {
       if (current !== sequence.current) return;
       setJob(data); setDraft(formValues(data, business));
       edited.current = false; setDirty(false); setNotice('Job details saved.');
+      onSaved?.(data);
     } catch (error) {
       if (current === sequence.current && error.name !== 'AbortError') setError(error.message);
     } finally {

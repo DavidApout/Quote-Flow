@@ -213,3 +213,13 @@ footer { font-size: .65rem; margin-top: 36px; padding-top: 22px; }
   .dashboard-stats { gap: 24px 0; }
   .metric-card:nth-child(3) { border-left: 0; }
 }
+
+/* Inbox deadlines use the same calendar dates shown in job details. */
+.inbox-tools { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
+.inbox-tools > div { min-width: 0; }
+.due-filter-help { grid-column: 1 / -1; margin: 0; font-size: .72rem; line-height: 1.6; }
+.job-due { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 12px 0; color: var(--muted); font-size: .76rem; }
+.job-due strong { padding: 3px 9px; border-radius: 999px; font-size: .7rem; }
+.due-overdue strong { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.due-today strong, .due-soon strong { color: var(--warning); background: var(--warning-bg); }
+@media (max-width: 760px) { .inbox-tools { grid-template-columns: 1fr; gap: 10px; } }
