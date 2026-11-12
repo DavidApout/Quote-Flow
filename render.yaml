@@ -4,7 +4,7 @@ services:
     name: quoteflow-ai-demo
     runtime: node
     plan: 0.5c-512mb
-    region: ohio
+    region: oregon
     buildCommand: npm ci --include=dev && npm run build
     startCommand: 'APP_ORIGIN="${APP_ORIGIN:-$RENDER_EXTERNAL_URL}" npm start'
     healthCheckPath: /api/auth/session

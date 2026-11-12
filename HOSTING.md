@@ -4,6 +4,22 @@ This repository includes a Render configuration for the existing React + Node
 application, with one server and a persistent SQLite disk. It is a limited
 fictional-data demo, not a production launch for real customers.
 
+## Deployment status — November 12, 2026
+
+Public URL: https://quoteflow-ai-demo.onrender.com
+
+Render service: `srv-dbqssdm7bikc73b1pkog`, Oregon. Initial deployed commit:
+`cebe85b`. Render reported Live, and the public sign-in page rendered.
+The homepage, unauthenticated session API, and privacy page returned HTTP 200.
+The selected server is $7/month plus a 1 GB disk at $0.25/month, before taxes
+or additional usage. Automatic deployments are off.
+
+This deployment starts with a fresh database. Local demo accounts and records
+were not uploaded. Hosted accounts/catalog setup and a hosted end-to-end
+transaction remain to be completed. AI and PayPal credentials are not yet
+configured here; email is disabled. The local demo's verified provider results
+must not be presented as verification of the hosted integrations.
+
 ## Deployment
 
 Use a Render Web Service, not a Static Site. Connect the public repository,
