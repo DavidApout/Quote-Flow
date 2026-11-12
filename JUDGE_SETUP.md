@@ -1,4 +1,32 @@
-# Run QuoteFlow AI from a fresh download
+# QuoteFlow AI — judge setup
+
+## Try the hosted demo
+
+Open https://quoteflow-ai-demo.onrender.com/.
+
+| QuoteFlow role | Email | Password |
+|---|---|---|
+| Customer | customer@demo.quoteflow.test | Supplied privately in judge testing instructions |
+| Business owner | owner@demo.quoteflow.test | Supplied privately in judge testing instructions |
+
+These hosted accounts use different passwords from the local demo below.
+Ask the entrant for private testing credentials if they were not included with
+submission access instructions. Never put hosted passwords in this public file.
+
+Use separate browser profiles for customer and business, or sign out when
+switching roles. The customer submits and accepts requests; the business reviews
+AI suggestions and approves prices. Use fictional information only.
+
+PayPal checkout requires a separate **Sandbox personal/buyer** account supplied
+privately. Do not use the seller/business account to pay itself. QuoteFlow
+credentials do not sign into PayPal. All payments use test money.
+
+Hosted email delivery is disabled; in-app notifications work. Shipping statuses
+are entered manually by the business. Refund requests are implemented, but the
+live refund test returned PayPal PERMISSION_DENIED; refund completion is not
+verified. See [HOSTING.md](HOSTING.md) for the current deployment status.
+
+## Run a fresh local copy
 
 Requires Node.js 24 or later, npm, and a current desktop browser. This is a
 local React/Vite + Node/SQLite app. No database subscription or domain is needed.
@@ -31,8 +59,6 @@ Do not seed a production database or expose these intentionally public accounts.
 | Business owner | owner@quoteflow.test | QuoteFlow local demo 2026! |
 | Customer | customer@quoteflow.test | QuoteFlow local demo 2026! |
 
-Paypal Sandbox email: sb-fj6u353463131@business.example.com
-PayPal Sandbox Password:  pGR^g6'J
 Tabs in the same browser share one login. Sign out to switch roles, or use
 separate browser profiles. No paid receipt or fabricated AI result is seeded.
 
@@ -104,5 +130,7 @@ database and is not the fresh-download command.
 
 Email stays in local preview mode. PayPal supports one configured demo merchant,
 USD, and sandbox payments only. No production merchant onboarding, live payments,
-refund workflow, or production security certification is claimed. The legal pages
+or production security certification is claimed. Full test-refund requests and
+business review are implemented; live refund verification is blocked by PayPal
+permissions. Partial refunds and formal dispute integration are not implemented. The legal pages
 are demo notices. See LEGAL_SETUP.md before a real launch.
