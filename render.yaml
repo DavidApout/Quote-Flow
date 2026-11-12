@@ -1,0 +1,26 @@
+# Paid web service and persistent disk; review Render's checkout before deployment.
+services:
+  - type: web
+    name: quoteflow-ai-demo
+    runtime: node
+    plan: 0.5c-512mb
+    region: ohio
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: 'APP_ORIGIN="${APP_ORIGIN:-$RENDER_EXTERNAL_URL}" npm start'
+    healthCheckPath: /api/auth/session
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_PATH
+        value: /var/data/quoteflow.sqlite
+      - key: MAIL_MODE
+        value: disabled
+    disk:
+      name: quoteflow-data
+      mountPath: /var/data
+      sizeGB: 1
