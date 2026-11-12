@@ -643,3 +643,32 @@ test('widget attachments require verified private access and retry keys include 
   time+=31*86400000;
   assert.equal((await app.request('/track/attachments',{headers})).status,401);
 });
+
+test('shipping and issues enforce participants, roles, payment checks and notifications', async t => {
+  const app=await start(); t.after(app.stop); const {request}=app;
+  const owner=await register(request,'shipping-owner@example.test','business');
+  const customer=await register(request,'shipping-customer@example.test');
+  const stranger=await register(request,'shipping-stranger@example.test');
+  const quote=await request('/quotes',{method:'POST',cookie:customer.cookie,body:{businessId:owner.body.user.id,serviceId:'custom',request:'Ship shirts',quantity:12}});
+  const path=`/quotes/${quote.body.id}/fulfillment`;
+  const shipment={action:'shipment',method:'shipping',carrier:'UPS',tracking:'1Z12345',status:'preparing'};
+  assert.equal((await request(path,{cookie:stranger.cookie})).status,404);
+  assert.equal((await request(path,{method:'PATCH',cookie:customer.cookie,body:shipment})).status,403);
+  assert.equal((await request(path,{method:'PATCH',cookie:owner.cookie,body:{...shipment,carrier:'javascript:alert(1)'}})).status,400);
+  assert.equal((await request(path,{method:'PATCH',cookie:owner.cookie,body:{...shipment,status:'shipped'}})).status,409);
+  assert.equal((await request(path,{method:'PATCH',cookie:owner.cookie,body:shipment})).status,200);
+  const saved=await request(path,{cookie:customer.cookie});
+  assert.equal(saved.body.shipment.trackingUrl,'https://www.ups.com/track?tracknum=1Z12345');
+  const issue={category:'wrong_damaged',details:'Logo is incorrect.'};
+  assert.equal((await request(path,{method:'POST',cookie:owner.cookie,body:issue})).status,403);
+  const created=await request(path,{method:'POST',cookie:customer.cookie,body:issue});
+  assert.equal(created.status,200); assert.equal(created.body.issues[0].status,'open');
+  assert.equal((await request(path,{method:'POST',cookie:customer.cookie,body:issue})).status,409);
+  const resolve={action:'issue',issueId:created.body.issues[0].id,status:'resolved'};
+  assert.equal((await request(path,{method:'PATCH',cookie:customer.cookie,body:resolve})).status,403);
+  assert.equal((await request(path,{method:'PATCH',cookie:owner.cookie,body:{...resolve,issueId:'unknown'}})).status,400);
+  assert.equal((await request(path,{method:'PATCH',cookie:owner.cookie,body:resolve})).body.issues[0].status,'resolved');
+  assert.equal((await request(path,{cookie:customer.cookie})).body.issues[0].details,issue.details);
+  assert.ok((await request('/notifications',{cookie:owner.cookie})).body.notifications.some(n=>n.title==='The customer reported an order issue'));
+  assert.ok((await request('/notifications',{cookie:customer.cookie})).body.notifications.some(n=>n.title==='The business updated pickup or shipping details'));
+});

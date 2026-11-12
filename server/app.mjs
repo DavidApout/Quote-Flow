@@ -1,3 +1,4 @@
+import { createFulfillment } from './fulfillment.mjs';
 import { createAttachments } from './attachments.mjs';
 import { createPayments } from './paypal.mjs';
 import { createEngagement } from './engagement.mjs';
@@ -96,6 +97,7 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
   const attachments = createAttachments({ db });
   const engagement = createEngagement({ db, attachments, origin, secure, now, limit, transaction, bodyOf, send, dummyHash, mailMode, mailKey, mailFrom, mailTransport, mailWebhookSecret });
   const payments = createPayments({ db, origin, now, transaction, quoteEvent: engagement.quoteEvent, config: paypalConfig, transport: paypalTransport });
+  const fulfillmentRoute = createFulfillment({ db, transaction, quoteEvent: engagement.quoteEvent, bodyOf, send });
   async function jobRoute(req,res,id,userId,method) {
     const quote=db.prepare('SELECT * FROM quotes WHERE id=? AND (business_id=? OR customer_id=?)').get(id,userId,userId);
     if(!quote) fail(404,'Request not found.');
@@ -147,6 +149,10 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
         limit(`payment:${quote.id}`, 30);
         return send(res, 200, await payments.act(quote, body.action));
       }
+      if (path === '/api/track/fulfillment' && ['GET','POST','PATCH'].includes(method)) {
+        const guest = engagement.authorizeGuest(req);
+        return await fulfillmentRoute(req,res,guest.quote_id,guest.user_id,method);
+      }
       if (path === '/api/track/job' && ['GET','PATCH'].includes(method)) {
         const guest = engagement.authorizeGuest(req);
         return await jobRoute(req,res,guest.quote_id,guest.user_id,method);
@@ -197,6 +203,8 @@ export async function createApi({ database = ':memory:', origin = 'http://127.0.
       if (!user) fail(401, 'Please sign in again.');
       if (req.headers['x-quoteflow-user'] && req.headers['x-quoteflow-user'] !== user.id) fail(401, 'Your account changed. Please sign in again.');
       if (await engagement.accountRoutes(req, res, path, method, user)) return;
+      const fulfillmentMatch = path.match(/^\/api\/quotes\/([\w-]+)\/fulfillment$/);
+      if (fulfillmentMatch && ['GET','POST','PATCH'].includes(method)) return await fulfillmentRoute(req,res,fulfillmentMatch[1],user.id,method);
       const jobMatch = path.match(/^\/api\/quotes\/([\w-]+)\/job$/);
       if (jobMatch && ['GET','PATCH'].includes(method)) return await jobRoute(req,res,jobMatch[1],user.id,method);
 

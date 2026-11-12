@@ -1,3 +1,4 @@
+import Fulfillment from './Fulfillment';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const stageLabels = { not_started: 'Not started', in_progress: 'In progress', ready: 'Ready for pickup', completed: 'Completed' };
@@ -118,5 +119,5 @@ function JobDetailsForm({ quote, accountId, token, business, onSaved }) {
 
 export default function JobDetails(props) {
   // A changed account/private link must not inherit another request's draft.
-  return <JobDetailsForm key={`${props.quote.id}:${props.accountId || ''}:${props.token || ''}:${Boolean(props.business)}`} {...props} business={Boolean(props.business)} />;
+  return <><JobDetailsForm key={`${props.quote.id}:${props.accountId || ''}:${props.token || ''}:${Boolean(props.business)}`} {...props} business={Boolean(props.business)} /><Fulfillment key={`fulfillment:${props.quote.id}:${props.accountId || props.token}`} {...props} /></>;
 }

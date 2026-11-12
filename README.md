@@ -164,3 +164,16 @@ guided shirt request, $300 preview, submission, and appearance in the owner inbo
 phone width had no horizontal overflow. The browser's message send/reply check
 was interrupted by the automation service and remains unverified visually;
 its API workflow passed the automated tests.
+
+## Shipping and order issues
+
+Open **Pickup, shipping & issues** inside a request's details. The business can
+choose pickup or shipping, enter a UPS/FedEx/USPS/DHL tracking number, and update
+fulfillment status after test payment. Customers receive a carrier tracking link.
+Statuses are manually reported by the business, not synced from carriers.
+
+Customers can report one open issue per request. The business can mark it open,
+reviewing, or resolved; both sides can use the existing conversation to discuss it.
+Updates persist in SQLite and generate in-app notifications. Hosted email remains
+disabled. This does not open a PayPal dispute or process/confirm any refund.
+Issue-specific photo uploads and automatic carrier updates are not implemented.
