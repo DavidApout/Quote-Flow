@@ -28,7 +28,6 @@ are HTML documents that can be printed to PDF. The app is not production hosting
 
 ## Submission preparation
 
-See [SUBMISSION.md](SUBMISSION.md) for copy and remaining requirements, and
-[VIDEO_SCRIPT.md](VIDEO_SCRIPT.md) for the recording plan. Public repository access,
+See [SUBMISSION.md](SUBMISSION.md) for copy and remaining requirements. Public repository access,
 the public video, judge test access, eligibility, and final entry confirmation
 must be verified before claiming that the submission is complete.

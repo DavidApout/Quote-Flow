@@ -11,12 +11,12 @@ quotes, PayPal Sandbox checkout, and job updates for small service businesses.
 
 **Judges: start with [JUDGE_SETUP.md](JUDGE_SETUP.md)** for a fresh installation,
 fictional accounts, and provider configuration. See [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
-for the November 11 verified $300 test payment and completed job. Submission copy
-and the recording plan are in [SUBMISSION.md](SUBMISSION.md) and [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md).
+for the November 11 verified $300 test payment and completed job.
+Submission notes are in [SUBMISSION.md](SUBMISSION.md).
 Browser evidence: [live AI review](docs/images/live-ai-review.jpg),
 [completed test payment and job](docs/images/customer-job-completed.jpg).
 Source is available under the [MIT license](LICENSE). Dependencies keep their own licenses.
-The app is a local demo; email previews send nothing and PayPal uses test money.
+The app is a fictional-data demo. Hosted email delivery is disabled; PayPal uses test money.
 
 React/Vite frontend with a Node.js account and quote backend, using SQLite. Requires Node 24 or later. No external account service or database subscription is needed for local development.
 
