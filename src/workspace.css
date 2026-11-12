@@ -231,7 +231,7 @@ footer { font-size: .65rem; margin-top: 36px; padding-top: 22px; }
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: transparent url('/quoteflow-logo-transparent.png') center / contain no-repeat;
+  background: transparent url('/quoteflow-logo-clear.png') center / contain no-repeat;
 
 }
 @media (max-width: 480px) {
