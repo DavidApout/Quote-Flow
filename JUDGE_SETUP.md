@@ -31,6 +31,8 @@ Do not seed a production database or expose these intentionally public accounts.
 | Business owner | owner@quoteflow.test | QuoteFlow local demo 2026! |
 | Customer | customer@quoteflow.test | QuoteFlow local demo 2026! |
 
+Paypal Sandbox email: sb-fj6u353463131@business.example.com
+PayPal Sandbox Password:  pGR^g6'J
 Tabs in the same browser share one login. Sign out to switch roles, or use
 separate browser profiles. No paid receipt or fabricated AI result is seeded.
 
