@@ -223,3 +223,18 @@ footer { font-size: .65rem; margin-top: 36px; padding-top: 22px; }
 .due-overdue strong { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
 .due-today strong, .due-soon strong { color: var(--warning); background: var(--warning-bg); }
 @media (max-width: 760px) { .inbox-tools { grid-template-columns: 1fr; gap: 10px; } }
+
+/* Approved glass logo, framed from the original artwork without changing it. */
+.brand-logo {
+  display: block;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: #f4f9ff url('/quoteflow-logo.png') -47px -75px / 307px 205px no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(125, 173, 207, .16);
+}
+@media (max-width: 480px) {
+  .brand { gap: 10px; }
+  .brand-logo { flex-basis: 48px; width: 48px; height: 48px; background-size: 263px 176px; background-position: -40px -64px; border-radius: 14px; }
+}
