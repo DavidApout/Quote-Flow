@@ -2,7 +2,7 @@
 
 **Public demo:** https://quoteflow-ai-demo.onrender.com — hosted fictional-data demo.
 Separate hosted accounts and sample services are configured. A live AI review passed;
-The hosted $300 PayPal test payment is confirmed. Live refund verification is pending.
+The hosted $300 PayPal test payment is confirmed. Live refund execution is blocked by PayPal PERMISSION_DENIED.
 Email is disabled. Local demo credentials do not sign into this deployment.
 See [hosting status](HOSTING.md) for verified behavior and limitations.
 
@@ -191,5 +191,7 @@ retrying after 30 minutes and require manual PayPal review; they must not be
 replaced blindly. Partial refunds, automatic webhooks, formal dispute handling,
 and support-team refund authority are not implemented. The original capture
 remains historical proof of payment; the separate refund record shows its return.
-Automated refund tests use a simulated PayPal provider; no live refund test has
-been performed or existing demo payment refunded during implementation.
+Automated refund tests use a simulated PayPal provider. An authorized live $300
+test refund was attempted on November 12; PayPal returned PERMISSION_DENIED.
+No refund is confirmed. Resolve the sandbox merchant/app permissions before
+claiming live refund support; preserve the saved request when retrying.
